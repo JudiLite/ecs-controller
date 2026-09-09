@@ -15,7 +15,7 @@ curl -fsSL https://raw.githubusercontent.com/elunez/ecs-controller/main/install.
   | sudo env ECS_COOKIE_SECURE=1 sh
 ```
 
-安装脚本会自动识别处理器架构，从 GitHub Release 下载并校验预构建程序，然后创建系统服务并启动。服务器不需要安装 Docker、Git 或 Go。
+直接运行脚本会进入交互式安装向导，可选择原生安装或 Docker 安装，并配置 HTTPS、域名、端口、容器名称和 Docker 配置目录。填写域名后，Docker 模式会生成 Caddy 反向代理并自动申请、续期 HTTPS 证书，域名需要提前解析到服务器 IP。原生模式会创建 systemd 或 OpenRC 服务；两种模式都会从 GitHub Release 下载并校验预构建程序。
 
 `ECS_COOKIE_SECURE=1` 表示登录 Cookie 只允许通过 HTTPS 传输。使用域名、反向代理或 Cloudflare 并由浏览器通过 HTTPS 访问时，建议保持为 `1`；反向代理到程序内部使用 HTTP 不受影响。如果直接使用 HTTP 访问，请不要设置该变量：
 
