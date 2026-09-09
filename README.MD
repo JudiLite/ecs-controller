@@ -11,7 +11,7 @@
 在服务器上运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/elunez/ecs-controller/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/install.sh \
   | sudo env ECS_COOKIE_SECURE=1 sh
 ```
 
@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/elunez/ecs-controller/main/install.
 `ECS_COOKIE_SECURE=1` 表示登录 Cookie 只允许通过 HTTPS 传输。使用域名、反向代理或 Cloudflare 并由浏览器通过 HTTPS 访问时，建议保持为 `1`；反向代理到程序内部使用 HTTP 不受影响。如果直接使用 HTTP 访问，请不要设置该变量：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/elunez/ecs-controller/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/install.sh \
   | sudo sh
 ```
 
@@ -180,7 +180,7 @@ sudo tail -f /var/log/ecs-controller.log
 
 ## 相关链接
 
-- 项目地址：https://github.com/elunez/ecs-controller
-- 问题反馈：https://github.com/elunez/ecs-controller/issues
-- 原版项目：https://github.com/Kori1c/ecs-controller
+- 二次开发项目：https://github.com/JudiLite/ecs-controller
+- 问题反馈：https://github.com/JudiLite/ecs-controller/issues
+- 上游项目：https://github.com/elunez/ecs-controller
 - 许可证：[MIT](./LICENSE)
