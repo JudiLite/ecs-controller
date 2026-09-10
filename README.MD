@@ -76,6 +76,24 @@ sudo tail -f /var/log/ecs-controller.log
 
 公网使用 Passkey 时必须使用 HTTPS。
 
+### 卸载服务
+
+在服务器上运行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/elunez/ecs-controller/main/uninstall.sh \
+  | sudo sh
+```
+
+卸载脚本会自动停止并移除后台服务、清理安装目录与运行用户。默认**保留**数据目录（`/var/lib/ecs-controller`）与配置目录（`/etc/ecs-controller`），避免误删数据库和密钥。
+
+若需彻底清除（包括数据和配置）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/elunez/ecs-controller/main/uninstall.sh \
+  | sudo env ECS_PURGE=1 sh
+```
+
 ### 本地测试
 
 在自己的电脑上测试时，需要安装 Go 1.26 或允许 Go 自动下载对应工具链。在项目根目录执行：
