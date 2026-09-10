@@ -215,6 +215,22 @@ sudo /opt/ecs-controller/setup.sh
 
 如果旧版本没有在线更新功能，重新运行一次安装命令即可。更新菜单不会改变现有部署方式和配置。
 
+## 卸载
+
+安装完成后会提供全局卸载命令。它会先停止并删除 Docker 容器或原生服务，再删除程序目录；默认保留数据和配置：
+
+```bash
+sudo ecs-uninstall
+```
+
+彻底删除数据和配置：
+
+```bash
+sudo ecs-uninstall --purge
+```
+
+服务菜单中的“卸载服务”也会调用同一个卸载命令。
+
 ## 安全提醒
 
 - 不要把 AccessKey 或 AccessKey Secret 发给别人。

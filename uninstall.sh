@@ -7,6 +7,7 @@ env_file=$config_dir/ecs-controller.env
 data_dir=${ECS_DATA_DIR:-}
 service_user=ecs-controller
 purge=${ECS_PURGE:-0}
+global_commands="/usr/local/bin/ecs /usr/local/bin/ecs-uninstall /usr/local/bin/aliyun"
 
 # 优先从已有的环境配置文件中读取实际数据目录
 if [ -z "$data_dir" ] && [ -f "$env_file" ]; then
@@ -16,6 +17,11 @@ if [ -z "$data_dir" ] && [ -f "$env_file" ]; then
     fi
 fi
 data_dir=${data_dir:-/var/lib/ecs-controller}
+docker_data_dir=
+if [ -d "$install_root/data" ] && [ -f "$install_root/docker-compose.yml" ]; then
+    docker_data_dir="$install_root/data"
+    data_dir="$docker_data_dir"
+fi
 
 # 解析命令行参数
 for arg in "$@"; do
@@ -62,6 +68,25 @@ fi
 
 echo "正在停止并清理 ECS Controller 服务..."
 
+# Docker Compose 服务不受 systemd/OpenRC 管理，必须单独停止并删除容器。
+stop_docker_services() {
+    command -v docker >/dev/null 2>&1 || return 0
+
+    if [ -f "$install_root/docker-compose.yml" ]; then
+        (cd "$install_root" && docker compose down --remove-orphans) >/dev/null 2>&1 || true
+        return 0
+    fi
+
+    # 即使安装目录已被删除，也按 Compose 工作目录标签清理残留容器。
+    container_ids=$(docker ps -aq \
+        --filter "label=com.docker.compose.project.working_dir=$install_root" 2>/dev/null || true)
+    if [ -n "$container_ids" ]; then
+        docker rm -f $container_ids >/dev/null 2>&1 || true
+    fi
+}
+
+stop_docker_services
+
 # 停止并移除服务
 if [ "$service_manager" = "systemd" ]; then
     for s in ecs-controller ecs-controller-updater; do
@@ -92,10 +117,15 @@ fi
 # 移除日志与运行时文件
 rm -f /var/log/ecs-controller.log /var/log/ecs-controller-updater.log
 
-# 移除程序安装目录
+# 移除程序安装目录；普通卸载保留 Docker 的 data 目录。
 if [ -d "$install_root" ] || [ -L "$install_root" ]; then
     echo "正在删除程序目录：$install_root ..."
-    rm -rf "$install_root"
+    if [ "$purge" -eq 1 ] || [ -z "$docker_data_dir" ]; then
+        rm -rf "$install_root"
+    else
+        find "$install_root" -mindepth 1 -maxdepth 1 ! -name data -exec rm -rf {} +
+        rmdir "$install_root" 2>/dev/null || true
+    fi
 fi
 
 # 清理配置与数据目录
@@ -122,5 +152,10 @@ fi
 if command -v groupdel >/dev/null 2>&1; then
     groupdel "$service_user" 2>/dev/null || true
 fi
+
+# 最后移除全局命令。当前脚本即使删除自身也可以继续执行到结束。
+for command_path in $global_commands; do
+    rm -f "$command_path"
+done
 
 echo "ECS 控制台卸载完成。"

@@ -9,6 +9,7 @@ SETUP_REPO="${ECS_SETUP_REPO:-JudiLite/ecs-controller}"
 DEPLOY_DIR="${ECS_DEPLOY_DIR:-/opt/ecs-controller}"
 STATE_FILE="$DEPLOY_DIR/.setup_state"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
+UNINSTALL_SCRIPT="/usr/local/bin/ecs-uninstall"
 DOWNLOAD_WORK_DIR=""
 
 RED='\033[0;31m'
@@ -66,9 +67,11 @@ persist_self() {
         install_if_changed 0755 "$temp_asset" /usr/local/bin/ecs
         rm -f "$temp_asset"
     fi
-    for asset in Dockerfile.updater docker-updater.sh release-public-key.pem; do
+    for asset in Dockerfile.updater docker-updater.sh release-public-key.pem uninstall.sh; do
         if [[ -f "$source_dir/$asset" ]]; then
-            install_if_changed 0644 "$source_dir/$asset" "$DEPLOY_DIR/$asset"
+            asset_mode=0644
+            [[ "$asset" == "uninstall.sh" ]] && asset_mode=0755
+            install_if_changed "$asset_mode" "$source_dir/$asset" "$DEPLOY_DIR/$asset"
         else
             temp_asset=$(mktemp)
             asset_url="$asset"
@@ -76,10 +79,13 @@ persist_self() {
                 asset_url="internal/app/release-public-key.pem"
             fi
             curl -fsSL "https://raw.githubusercontent.com/$SETUP_REPO/main/$asset_url" -o "$temp_asset"
-            install_if_changed 0644 "$temp_asset" "$DEPLOY_DIR/$asset"
+            asset_mode=0644
+            [[ "$asset" == "uninstall.sh" ]] && asset_mode=0755
+            install_if_changed "$asset_mode" "$temp_asset" "$DEPLOY_DIR/$asset"
             rm -f "$temp_asset"
         fi
     done
+    install_if_changed 0755 "$DEPLOY_DIR/uninstall.sh" "$UNINSTALL_SCRIPT"
     rm -f /usr/local/bin/aliyun
 }
 
@@ -425,12 +431,13 @@ show_logs() {
 }
 
 uninstall() {
-    if [[ -f "$COMPOSE_FILE" ]]; then
-        (cd "$DEPLOY_DIR" && docker compose down)
-    else
-        curl -fsSL "https://raw.githubusercontent.com/$RELEASE_REPO/main/uninstall.sh" | sh
+    if [[ -x "$UNINSTALL_SCRIPT" ]]; then
+        exec "$UNINSTALL_SCRIPT"
     fi
-    echo "服务已停止。数据目录仍保留：$DEPLOY_DIR/data"
+    if [[ -f "$DEPLOY_DIR/uninstall.sh" ]]; then
+        exec "$DEPLOY_DIR/uninstall.sh"
+    fi
+    die "未找到卸载脚本，请重新运行最新安装脚本后再卸载。"
 }
 
 main_menu() {
