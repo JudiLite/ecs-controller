@@ -138,15 +138,16 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
 
 请在阿里云 RAM 中创建一个用于本项目的用户，开启“OpenAPI 调用访问”，然后把 AccessKey ID 和 AccessKey Secret 填入账号管理。
 
-项目会根据功能使用以下权限：
+项目会根据功能使用以下 RAM 权限策略：
 
-- **实例管理与自定义镜像**：ECS（包含实例查询与启停、镜像列表查询 `DescribeImages`、系统盘及规格预检等）
-- **实例流量**：CMS（云监控，用于获取实例网络流出量）
-- **账号流量**：CDT（云数据传输，用于获取公网流出流量）
-- **创建实例与网络管理**：VPC、ECS（创建 VPC、交换机、安全组，申请、绑定及释放 EIP）
-- **消费情况与费用分析**：BSS 账单服务（查询账户余额、账单明细和分项费用）
+- **实例管理与自定义镜像**：`AliyunECSFullAccess`（ECS 完整管理权限，包含实例查询与启停、镜像列表查询 `DescribeImages`、系统盘及规格预检等）
+- **实例流量**：`AliyunCloudMonitorReadOnlyAccess`（CloudMonitor 只读权限，用于获取实例网络流出量）
+- **账号流量**：`AliyunCDTFullAccess`（Cloud Data Transfer 完整权限，用于获取公网流出流量）
+- **创建实例与网络管理**：`AliyunVPCFullAccess`（VPC 完整权限）和 `AliyunECSFullAccess`（ECS 完整权限，用于创建 VPC、交换机、安全组，申请、绑定及释放 EIP）
+- **消费情况与费用分析**：`AliyunBSSReadOnlyAccess`（BSS 账单服务只读权限，用于查询账户余额、账单明细和分项费用）
+- **阿里云资源元数据服务角色**：`AliyunServiceRolePolicyForResourceMetaCenter`（由阿里云相关服务创建或使用服务关联角色时可能需要）
 
-如果出现“CMS 不可用”或“CDT 不可用”，通常是对应的 RAM 权限没有开启。只查看和管理已有实例时，不需要开通创建实例、EIP 和账单权限。
+如果出现“CloudMonitor 不可用”或“CDT 不可用”，通常是对应的 RAM 权限没有开启。只查看和管理已有实例时，不需要开通创建实例、EIP 和账单权限。
 
 ## 主要功能
 
@@ -167,7 +168,7 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
 - **实例控制**：支持启动、关机以及二次确认安全释放实例。
 
 ### 流量保护与运维自动化
-- **双重流量监控**：同时监控 CMS 实例级流量与 CDT 账号级计费流量。
+- **双重流量监控**：同时监控 CloudMonitor 实例级流量与 CDT 账号级计费流量。
 - **灵活保护动作**：任一流量达到设定阈值时执行保护（支持“停机并发送通知”或“仅发送告警”）。
 - **超额自动防复跳**：因超额停机后自动阻塞定时开机，防止刚停机又被定时任务拉起造成扣费。
 - **定时开关机日程**：支持为实例设置每日定时开机与关机时间（精确到分钟）。
