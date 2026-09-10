@@ -342,6 +342,26 @@ install_native() {
     echo -e "${GREEN}原生部署完成。HTTPS 证书和反向代理请使用已有的 Nginx/Caddy 配置。${RESET}"
 }
 
+update_existing() {
+    load_state
+    if [[ -f "$COMPOSE_FILE" ]]; then
+        INSTALL_MODE="docker"
+        echo -e "${CYAN}检测到 Docker 部署，正在按现有配置更新服务...${RESET}"
+        install_docker
+        return
+    fi
+
+    if [[ -e "$DEPLOY_DIR/current" || -f /etc/systemd/system/ecs-controller.service ||
+        -f /etc/init.d/ecs-controller ]]; then
+        INSTALL_MODE="native"
+        echo -e "${CYAN}检测到原生部署，正在更新服务...${RESET}"
+        install_native
+        return
+    fi
+
+    die "未检测到已安装的 ECS Controller，请先运行安装向导。"
+}
+
 write_deploy_info() {
     local address public_ip
     public_ip=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null ||
@@ -420,7 +440,7 @@ main_menu() {
     while true; do
         echo ""
         echo -e "${BOLD}ECS Controller 部署向导${RESET}"
-        echo "  1) 安装 / 更新"
+        echo "  1) 安装 / 重新部署"
         echo "  2) 查看状态"
         echo "  3) 重启服务"
         echo "  4) 查看日志"
@@ -448,5 +468,12 @@ main_menu() {
         esac
     done
 }
+
+if [[ "${1:-}" == "--update" ]]; then
+    require_root
+    persist_self
+    update_existing
+    exit 0
+fi
 
 main_menu "$@"

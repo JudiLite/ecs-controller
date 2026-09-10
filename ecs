@@ -67,19 +67,19 @@ show_menu() {
     echo "  3) 重启服务"
     echo "  4) 查看状态"
     echo "  5) 查看日志"
-    echo "  6) 安装 / 更新"
+    echo "  6) 更新服务"
     echo "  7) 卸载服务（保留数据）"
     echo "  0) 退出"
-    printf "请选择 [1]: "
-    read -r choice || choice=1
-    choice="${choice:-1}"
+    printf "请选择 [0]: "
+    read -r choice || choice=0
+    choice="${choice:-0}"
     case "$choice" in
         1) run_service start ;;
         2) run_service stop ;;
         3) run_service restart ;;
         4) run_service status ;;
         5) run_service logs ;;
-        6) exec "$SETUP_SCRIPT" ;;
+        6) exec "$SETUP_SCRIPT" --update ;;
         7)
             if compose_available; then
                 (cd "$DEPLOY_DIR" && docker compose down)

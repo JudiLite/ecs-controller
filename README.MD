@@ -205,7 +205,7 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
 
 只有 GitHub Release 的对应平台安装包、SHA256 校验文件和 Ed25519 签名全部准备好时才会更新。当前已安装程序使用内置公钥验证发布签名，再校验安装包 SHA256；任一校验失败都不会切换版本。原生部署由后台更新服务下载、校验、切换版本并重启控制台；Docker 部署由更新容器下载、校验、替换应用文件并重建容器。两种方式都会进行健康检查，失败时恢复更新前版本。更新不会删除账号、配置和流量数据。
 
-Docker 部署完成后无需登录服务器手动重建镜像，在“关于 → 在线更新”点击检查更新并确认即可。旧版本 Docker 部署如果页面仍显示不支持在线更新，重新运行一次部署向导以创建更新容器：
+Docker 部署完成后无需登录服务器手动重建镜像，在“关于 → 在线更新”点击检查更新并确认即可。服务菜单中的“更新服务”也会读取当前 Docker 配置直接更新，不会重新询问安装方式、域名、HTTPS 或容器名称。旧版本 Docker 部署如果页面仍显示不支持在线更新，重新运行一次部署向导以创建更新容器：
 
 ```bash
 sudo /opt/ecs-controller/setup.sh
@@ -213,7 +213,7 @@ sudo /opt/ecs-controller/setup.sh
 
 仓库发布者需要在 GitHub Actions 中配置名为 `ECS_RELEASE_SIGNING_KEY` 的 Ed25519 PEM 私钥。私钥只能保存在 GitHub Actions Secret 中；仓库和程序只保存对应公钥。
 
-如果旧版本没有在线更新功能，重新运行一次安装命令即可。
+如果旧版本没有在线更新功能，重新运行一次安装命令即可。更新菜单不会改变现有部署方式和配置。
 
 ## 安全提醒
 
