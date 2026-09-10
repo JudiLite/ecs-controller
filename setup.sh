@@ -36,9 +36,10 @@ require_root() {
 }
 
 persist_self() {
+    local script_source="${BASH_SOURCE[0]:-}"
     mkdir -p "$DEPLOY_DIR"
-    if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
-        install -m 0755 "${BASH_SOURCE[0]}" "$DEPLOY_DIR/setup.sh"
+    if [[ -f "$script_source" && "$script_source" != /dev/stdin && "$script_source" != /proc/* ]]; then
+        install -m 0755 "$script_source" "$DEPLOY_DIR/setup.sh"
     else
         local temp_setup
         temp_setup=$(mktemp)
@@ -46,8 +47,8 @@ persist_self() {
         install -m 0755 "$temp_setup" "$DEPLOY_DIR/setup.sh"
         rm -f "$temp_setup"
     fi
-    if [[ -f "$(dirname "${BASH_SOURCE[0]:-}")/aliyun" ]]; then
-        install -m 0755 "$(dirname "${BASH_SOURCE[0]}")/aliyun" /usr/local/bin/aliyun
+    if [[ -f "$(dirname "$script_source")/aliyun" ]]; then
+        install -m 0755 "$(dirname "$script_source")/aliyun" /usr/local/bin/aliyun
     else
         local temp_menu
         temp_menu=$(mktemp)
