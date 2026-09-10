@@ -18,45 +18,6 @@ env_file=$config_dir/ecs-controller.env
 releases_dir=$install_root/releases
 current_link=$install_root/current
 
-ask() {
-    prompt=$1
-    default=$2
-    printf '%s [%s]: ' "$prompt" "$default"
-    read answer || answer=
-    printf '%s' "${answer:-$default}"
-}
-
-if [ -t 0 ] && [ -z "${ECS_NONINTERACTIVE:-}" ]; then
-    echo "========================================"
-    echo " ECS Controller 交互式安装"
-    echo "========================================"
-    install_mode=$(ask "安装方式 (native/docker)" "native")
-    case "$install_mode" in
-        docker|Docker|DOCKER) install_mode=docker ;;
-        *) install_mode=native ;;
-    esac
-    https_enabled=$(ask "是否启用 HTTPS (y/n)" "n")
-    case "$https_enabled" in y|Y|yes|YES) https_enabled=1 ;; *) https_enabled=0 ;; esac
-    domain=$(ask "域名（不使用域名请留空）" "")
-    public_port=$(ask "对外访问端口" "80")
-    if [ "$https_enabled" = 1 ]; then
-        https_port=$(ask "HTTPS 端口" "443")
-        public_port=$https_port
-    fi
-    if [ "$install_mode" = docker ]; then
-        container_name=$(ask "容器名称" "ecs-controller")
-        docker_dir=$(ask "Docker 配置目录" "/opt/ecs-controller")
-        data_dir="$docker_dir/data"
-        install_root="$docker_dir"
-        listen_addr=0.0.0.0:43211
-    else
-        listen_addr=$(ask "本地监听地址" "$listen_addr")
-    fi
-    cookie_secure=$https_enabled
-else
-    install_mode=native
-fi
-
 if [ "$(id -u)" -ne 0 ]; then
     echo "请使用 root 权限运行，例如：curl -fsSL https://raw.githubusercontent.com/$repo/main/install.sh | sudo sh" >&2
     exit 1
@@ -305,92 +266,6 @@ case "$commit" in
     [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]) ;;
     *) echo "安装包没有有效的提交版本。" >&2; exit 1 ;;
 esac
-
-if [ "$install_mode" = docker ]; then
-    command -v docker >/dev/null 2>&1 || {
-        echo "Docker 模式需要先安装 Docker。" >&2
-        exit 1
-    }
-    docker compose version >/dev/null 2>&1 || {
-        echo "Docker 模式需要 Docker Compose v2（docker compose）。" >&2
-        exit 1
-    }
-
-    mkdir -p "$install_root/app" "$data_dir"
-    cp "$extracted/ecs-controller" "$install_root/app/ecs-controller"
-    cp "$extracted/template.html" "$install_root/app/template.html"
-    cp "$extracted/updater.sh" "$install_root/app/updater.sh"
-    cp -R "$extracted/static" "$install_root/app/static"
-    cat > "$install_root/app/Dockerfile" <<'EOF'
-FROM alpine:3.22
-RUN apk add --no-cache ca-certificates tzdata
-WORKDIR /app
-COPY ecs-controller template.html updater.sh ./
-COPY static ./static
-RUN chmod +x /app/ecs-controller /app/updater.sh
-ENV ECS_APP_DIR=/app ECS_DATA_DIR=/data ECS_HTTP_ADDR=0.0.0.0:43211 ECS_COOKIE_SECURE=0
-EXPOSE 43211
-CMD ["/app/ecs-controller"]
-EOF
-    cat > "$install_root/docker-compose.yml" <<EOF
-services:
-  ecs-controller:
-    build: ./app
-    image: ${container_name}:$version
-    container_name: ${container_name}
-    restart: unless-stopped
-    environment:
-      TZ: Asia/Shanghai
-      ECS_APP_DIR: /app
-      ECS_DATA_DIR: /data
-      ECS_HTTP_ADDR: 0.0.0.0:43211
-      ECS_COOKIE_SECURE: "$cookie_secure"
-    volumes:
-      - ./data:/data
-    expose:
-      - "43211"
-EOF
-    if [ -n "$domain" ]; then
-        cat >> "$install_root/docker-compose.yml" <<EOF
-  caddy:
-    image: caddy:2-alpine
-    container_name: ${container_name}-proxy
-    restart: unless-stopped
-    ports:
-      - "${public_port}:80"
-      - "${https_port:-443}:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - ecs-controller
-volumes:
-  caddy_data:
-  caddy_config:
-EOF
-        cat > "$install_root/Caddyfile" <<EOF
-$domain {
-    reverse_proxy ecs-controller:43211
-}
-EOF
-    else
-        cat >> "$install_root/docker-compose.yml" <<EOF
-    ports:
-      - "${public_port}:43211"
-EOF
-    fi
-    (cd "$install_root" && docker compose build && docker compose up -d)
-    rm -rf "$work_dir"
-    echo "ECS Controller Docker 安装完成：$version"
-    echo "配置目录：$install_root"
-    if [ -n "$domain" ]; then
-        echo "访问地址：https://$domain"
-    else
-        echo "访问地址：http://服务器IP:$public_port"
-    fi
-    exit 0
-fi
 
 create_service_user
 mkdir -p "$releases_dir" "$data_dir/update" "$config_dir"

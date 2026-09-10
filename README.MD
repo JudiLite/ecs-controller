@@ -6,25 +6,33 @@
 
 ## 部署
 
-准备一台使用 systemd 或 OpenRC 的 Linux 服务器。如果使用域名，请先将域名解析到服务器 IP。当前支持 AMD64 和 ARM64。
+准备一台 Linux 服务器。使用域名和 HTTPS 时，请先把域名解析到服务器 IP，并确保 80/443 端口可以访问。当前支持 AMD64 和 ARM64。
 
 在服务器上运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/install.sh \
-  | sudo env ECS_COOKIE_SECURE=1 sh
+curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/setup.sh \
+  | sudo bash
 ```
 
-直接运行脚本会进入交互式安装向导，可选择原生安装或 Docker 安装，并配置 HTTPS、域名、端口、容器名称和 Docker 配置目录。填写域名后，Docker 模式会生成 Caddy 反向代理并自动申请、续期 HTTPS 证书，域名需要提前解析到服务器 IP。原生模式会创建 systemd 或 OpenRC 服务；两种模式都会从 GitHub Release 下载并校验预构建程序。
+脚本会进入部署菜单，可选择 Docker Compose 或原生 systemd/OpenRC 安装，配置域名、HTTPS、端口和容器名称，并提供状态、重启、日志和卸载操作。Docker 模式会自动生成 Compose 配置；填写域名并启用 HTTPS 后，会使用 Caddy 自动申请和续期证书。
 
-`ECS_COOKIE_SECURE=1` 表示登录 Cookie 只允许通过 HTTPS 传输。使用域名、反向代理或 Cloudflare 并由浏览器通过 HTTPS 访问时，建议保持为 `1`；反向代理到程序内部使用 HTTP 不受影响。如果直接使用 HTTP 访问，请不要设置该变量：
+安装脚本只负责部署环境，不会询问应用账号、阿里云 AccessKey 或其他业务配置。服务启动后，用浏览器打开安装完成时显示的地址，在首次登录页面完成应用配置。
+
+```bash
+sudo /opt/ecs-controller/setup.sh
+```
+
+部署向导会把本次选择保存到 `/opt/ecs-controller/.setup_state`，重新运行时会自动使用上次的配置作为默认值。Docker 部署文件、数据和访问信息位于 `/opt/ecs-controller/`。
+
+如需直接使用底层原生安装器：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/install.sh \
   | sudo sh
 ```
 
-HTTP 环境错误设置为 `1` 时，可能出现登录成功后立即变成未登录。安装时的设置会写入 `/etc/ecs-controller/ecs-controller.env`。
+原生安装器支持 `ECS_HTTP_ADDR`、`ECS_COOKIE_SECURE` 和 `ECS_DATA_DIR` 等环境变量；使用 HTTPS 访问时请设置 `ECS_COOKIE_SECURE=1`。
 
 ### 运行配置与环境变量
 
@@ -81,7 +89,7 @@ sudo tail -f /var/log/ecs-controller.log
 在服务器上运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/elunez/ecs-controller/main/uninstall.sh \
+curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninstall.sh \
   | sudo sh
 ```
 
@@ -90,7 +98,7 @@ curl -fsSL https://raw.githubusercontent.com/elunez/ecs-controller/main/uninstal
 若需彻底清除（包括数据和配置）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/elunez/ecs-controller/main/uninstall.sh \
+curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninstall.sh \
   | sudo env ECS_PURGE=1 sh
 ```
 
