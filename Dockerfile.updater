@@ -1,0 +1,10 @@
+FROM alpine:3.22
+
+RUN apk add --no-cache ca-certificates curl docker-cli docker-cli-compose openssl tar
+
+COPY docker-updater.sh /usr/local/bin/docker-updater.sh
+COPY release-public-key.pem /etc/ecs-controller/release-public-key.pem
+
+RUN chmod 0755 /usr/local/bin/docker-updater.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-updater.sh"]

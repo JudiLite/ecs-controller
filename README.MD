@@ -22,17 +22,17 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/setup.
 部署完成后可以直接使用短命令进入服务菜单：
 
 ```bash
-sudo aliyun
+sudo ecs
 ```
 
 也可以直接执行操作：
 
 ```bash
-sudo aliyun start
-sudo aliyun stop
-sudo aliyun restart
-sudo aliyun status
-sudo aliyun logs
+sudo ecs start
+sudo ecs stop
+sudo ecs restart
+sudo ecs status
+sudo ecs logs
 ```
 
 部署向导完成时会同时在终端打印访问地址、部署目录、容器名称和服务管理命令，方便直接复制；完整信息也会保存到 `/opt/ecs-controller/DEPLOY_INFO.txt`。
@@ -79,18 +79,18 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/instal
 推荐使用统一服务菜单：
 
 ```bash
-sudo aliyun
+sudo ecs
 ```
 
 Docker 部署也支持直接使用参数：
 
 ```bash
-sudo aliyun restart
-sudo aliyun status
-sudo aliyun logs
+sudo ecs restart
+sudo ecs status
+sudo ecs logs
 ```
 
-底层 systemd/OpenRC 命令仍然可用。原生安装修改 `/etc/ecs-controller/ecs-controller.env` 后，需要重启 `ecs-controller` 服务才能生效；后台在线更新服务名为 `ecs-controller-updater`，一般不需要手动操作。
+底层 systemd/OpenRC 命令仍然可用。原生安装修改 `/etc/ecs-controller/ecs-controller.env` 后，需要重启 `ecs-controller` 服务才能生效。Docker 部署会额外运行更新容器，网页在线更新时自动下载、校验 Release、重建应用容器并进行健康检查，失败会自动回滚。
 
 服务默认只监听服务器本机的 `43211` 端口，请通过你现有的 HTTPS 访问方式打开面板，不要直接开放这个端口。
 
@@ -202,7 +202,13 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
 
 进入“关于 → 版本中心”，点击检查更新即可。
 
-只有 GitHub Release 的对应平台安装包、SHA256 校验文件和 Ed25519 签名全部准备好时才会更新。当前已安装程序使用内置公钥验证发布签名，再校验安装包 SHA256；任一校验失败都不会切换版本。后台更新服务会下载、校验、切换版本并重启控制台；健康检查失败时会恢复更新前版本。更新成功后仅保留当前版本和一个回滚版本，并清理失败下载目录及被替换版本。部署机器不会编译程序，更新不会删除账号、配置和流量数据。
+只有 GitHub Release 的对应平台安装包、SHA256 校验文件和 Ed25519 签名全部准备好时才会更新。当前已安装程序使用内置公钥验证发布签名，再校验安装包 SHA256；任一校验失败都不会切换版本。原生部署由后台更新服务下载、校验、切换版本并重启控制台；Docker 部署由更新容器下载、校验、替换应用文件并重建容器。两种方式都会进行健康检查，失败时恢复更新前版本。更新不会删除账号、配置和流量数据。
+
+Docker 部署完成后无需登录服务器手动重建镜像，在“关于 → 在线更新”点击检查更新并确认即可。旧版本 Docker 部署如果页面仍显示不支持在线更新，重新运行一次部署向导以创建更新容器：
+
+```bash
+sudo /opt/ecs-controller/setup.sh
+```
 
 仓库发布者需要在 GitHub Actions 中配置名为 `ECS_RELEASE_SIGNING_KEY` 的 Ed25519 PEM 私钥。私钥只能保存在 GitHub Actions Secret 中；仓库和程序只保存对应公钥。
 

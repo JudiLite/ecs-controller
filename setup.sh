@@ -37,6 +37,8 @@ require_root() {
 
 persist_self() {
     local script_source="${BASH_SOURCE[0]:-}"
+    local source_dir temp_asset asset
+    source_dir=$(dirname "$script_source")
     mkdir -p "$DEPLOY_DIR"
     if [[ -f "$script_source" && "$script_source" != /dev/stdin && "$script_source" != /proc/* ]]; then
         install -m 0755 "$script_source" "$DEPLOY_DIR/setup.sh"
@@ -47,15 +49,29 @@ persist_self() {
         install -m 0755 "$temp_setup" "$DEPLOY_DIR/setup.sh"
         rm -f "$temp_setup"
     fi
-    if [[ -f "$(dirname "$script_source")/aliyun" ]]; then
-        install -m 0755 "$(dirname "$script_source")/aliyun" /usr/local/bin/aliyun
+    if [[ -f "$source_dir/ecs" ]]; then
+        install -m 0755 "$source_dir/ecs" /usr/local/bin/ecs
     else
-        local temp_menu
-        temp_menu=$(mktemp)
-        curl -fsSL "https://raw.githubusercontent.com/$SETUP_REPO/main/aliyun" -o "$temp_menu"
-        install -m 0755 "$temp_menu" /usr/local/bin/aliyun
-        rm -f "$temp_menu"
+        temp_asset=$(mktemp)
+        curl -fsSL "https://raw.githubusercontent.com/$SETUP_REPO/main/ecs" -o "$temp_asset"
+        install -m 0755 "$temp_asset" /usr/local/bin/ecs
+        rm -f "$temp_asset"
     fi
+    for asset in Dockerfile.updater docker-updater.sh release-public-key.pem; do
+        if [[ -f "$source_dir/$asset" ]]; then
+            install -m 0644 "$source_dir/$asset" "$DEPLOY_DIR/$asset"
+        else
+            temp_asset=$(mktemp)
+            asset_url="$asset"
+            if [[ "$asset" == "release-public-key.pem" ]]; then
+                asset_url="internal/app/release-public-key.pem"
+            fi
+            curl -fsSL "https://raw.githubusercontent.com/$SETUP_REPO/main/$asset_url" -o "$temp_asset"
+            install -m 0644 "$temp_asset" "$DEPLOY_DIR/$asset"
+            rm -f "$temp_asset"
+        fi
+    done
+    rm -f /usr/local/bin/aliyun
 }
 
 ask() {
@@ -223,6 +239,7 @@ services:
       TZ: Asia/Shanghai
       ECS_APP_DIR: /app
       ECS_DATA_DIR: /data
+      ECS_UPDATE_DIR: /data/update
       ECS_HTTP_ADDR: 0.0.0.0:43211
       ECS_COOKIE_SECURE: "$([[ "$ENABLE_HTTPS" == "y" ]] && echo 1 || echo 0)"
     volumes:
@@ -230,9 +247,40 @@ services:
 EOF
 
     if [[ "$USE_DOMAIN" == "y" ]]; then
-        cat >> "$COMPOSE_FILE" <<EOF
+        cat >> "$COMPOSE_FILE" <<'EOF'
     expose:
       - "43211"
+EOF
+    else
+        cat >> "$COMPOSE_FILE" <<EOF
+    ports:
+      - "${APP_PORT}:43211"
+EOF
+    fi
+
+    cat >> "$COMPOSE_FILE" <<EOF
+  ecs-controller-updater:
+    build:
+      context: .
+      dockerfile: Dockerfile.updater
+    image: ${CONTAINER_NAME}:updater
+    container_name: ${CONTAINER_NAME}-updater
+    restart: unless-stopped
+    environment:
+      ECS_UPDATE_REPO: $RELEASE_REPO
+      ECS_UPDATE_DIR: /data/update
+      ECS_DEPLOY_DIR: /deploy
+      ECS_HEALTH_URL: http://ecs-controller:43211/healthz
+    volumes:
+      - ./data:/data
+      - ./:/deploy
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - ecs-controller
+EOF
+
+    if [[ "$USE_DOMAIN" == "y" ]]; then
+        cat >> "$COMPOSE_FILE" <<EOF
   caddy:
     image: caddy:2-alpine
     container_name: ${CONTAINER_NAME}-proxy
@@ -263,11 +311,6 @@ http://$DOMAIN {
 }
 EOF
         fi
-    else
-        cat >> "$COMPOSE_FILE" <<EOF
-    ports:
-      - "${APP_PORT}:43211"
-EOF
     fi
 }
 
@@ -325,10 +368,10 @@ EOF
     if [[ "$INSTALL_MODE" == "docker" ]]; then
         printf '容器名称: %s\n' "$CONTAINER_NAME"
         printf '部署目录: %s\n' "$DEPLOY_DIR"
-        printf '查看状态: aliyun status\n'
-        printf '服务菜单: aliyun\n'
+        printf '查看状态: ecs status\n'
+        printf '服务菜单: ecs\n'
     else
-        printf '服务管理: aliyun\n'
+        printf '服务管理: ecs\n'
     fi
     echo "------------------------------------------------------------"
     echo "访问信息已保存到: $DEPLOY_DIR/DEPLOY_INFO.txt"
