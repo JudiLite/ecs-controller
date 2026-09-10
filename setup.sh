@@ -418,7 +418,7 @@ main_menu() {
         echo "  5) 卸载服务（保留数据）"
         echo "  0) 退出"
         local choice
-        choice=$(ask "请选择" "1")
+        choice=$(ask "请选择" "0")
         case "$choice" in
             1)
                 collect_config
