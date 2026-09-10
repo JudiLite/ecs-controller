@@ -30,6 +30,15 @@ die() {
     exit 1
 }
 
+install_if_changed() {
+    local mode="$1" source="$2" destination="$3"
+    if [[ -f "$destination" ]] && cmp -s "$source" "$destination"; then
+        chmod "$mode" "$destination"
+        return 0
+    fi
+    install -m "$mode" "$source" "$destination"
+}
+
 require_root() {
     [[ "$(id -u)" -eq 0 ]] || die "请使用 root 权限运行。"
     [[ "$(uname -s)" == "Linux" ]] || die "当前部署向导仅支持 Linux。"
@@ -41,25 +50,25 @@ persist_self() {
     source_dir=$(dirname "$script_source")
     mkdir -p "$DEPLOY_DIR"
     if [[ -f "$script_source" && "$script_source" != /dev/stdin && "$script_source" != /proc/* ]]; then
-        install -m 0755 "$script_source" "$DEPLOY_DIR/setup.sh"
+        install_if_changed 0755 "$script_source" "$DEPLOY_DIR/setup.sh"
     else
         local temp_setup
         temp_setup=$(mktemp)
         curl -fsSL "https://raw.githubusercontent.com/$SETUP_REPO/main/setup.sh" -o "$temp_setup"
-        install -m 0755 "$temp_setup" "$DEPLOY_DIR/setup.sh"
+        install_if_changed 0755 "$temp_setup" "$DEPLOY_DIR/setup.sh"
         rm -f "$temp_setup"
     fi
     if [[ -f "$source_dir/ecs" ]]; then
-        install -m 0755 "$source_dir/ecs" /usr/local/bin/ecs
+        install_if_changed 0755 "$source_dir/ecs" /usr/local/bin/ecs
     else
         temp_asset=$(mktemp)
         curl -fsSL "https://raw.githubusercontent.com/$SETUP_REPO/main/ecs" -o "$temp_asset"
-        install -m 0755 "$temp_asset" /usr/local/bin/ecs
+        install_if_changed 0755 "$temp_asset" /usr/local/bin/ecs
         rm -f "$temp_asset"
     fi
     for asset in Dockerfile.updater docker-updater.sh release-public-key.pem; do
         if [[ -f "$source_dir/$asset" ]]; then
-            install -m 0644 "$source_dir/$asset" "$DEPLOY_DIR/$asset"
+            install_if_changed 0644 "$source_dir/$asset" "$DEPLOY_DIR/$asset"
         else
             temp_asset=$(mktemp)
             asset_url="$asset"
@@ -67,7 +76,7 @@ persist_self() {
                 asset_url="internal/app/release-public-key.pem"
             fi
             curl -fsSL "https://raw.githubusercontent.com/$SETUP_REPO/main/$asset_url" -o "$temp_asset"
-            install -m 0644 "$temp_asset" "$DEPLOY_DIR/$asset"
+            install_if_changed 0644 "$temp_asset" "$DEPLOY_DIR/$asset"
             rm -f "$temp_asset"
         fi
     done
@@ -269,11 +278,11 @@ EOF
     environment:
       ECS_UPDATE_REPO: $RELEASE_REPO
       ECS_UPDATE_DIR: /data/update
-      ECS_DEPLOY_DIR: /deploy
+      ECS_DEPLOY_DIR: $DEPLOY_DIR
       ECS_HEALTH_URL: http://ecs-controller:43211/healthz
     volumes:
       - ./data:/data
-      - ./:/deploy
+      - ${DEPLOY_DIR}:${DEPLOY_DIR}
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - ecs-controller

@@ -12,6 +12,7 @@ lock_dir=$update_dir/.docker-lock
 public_key=/etc/ecs-controller/release-public-key.pem
 
 mkdir -p "$update_dir"
+umask 077
 
 json_escape() {
     printf '%s' "$1" | awk 'BEGIN { ORS="" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\r/, ""); printf "%s", $0 }'
@@ -48,6 +49,13 @@ cleanup() {
     fi
     rmdir "$lock_dir" 2>/dev/null || true
 }
+
+fail_unexpected() {
+    write_status error failed "Docker 更新器发生异常，请查看 ecs-controller-updater 日志" 0 \
+        "${target:-}" "${current:-}" "${version:-}" "${request_id:-}"
+    cleanup
+}
+trap fail_unexpected HUP INT TERM
 
 health_check() {
     attempt=0
@@ -139,6 +147,7 @@ run_update() {
         return
     fi
 
+    write_status running rollback "新版本启动或健康检查失败，正在回滚" 88 "$target" "$current" "$version" "$request_id"
     rm -rf "$deploy_dir/app"
     mv "$backup_dir" "$deploy_dir/app"
     docker compose -f "$deploy_dir/docker-compose.yml" --project-directory "$deploy_dir" up -d --build ecs-controller >/dev/null 2>&1 || true
