@@ -40,17 +40,23 @@ jobs:
         id: version
         shell: bash
         run: |
+          baseline_tag="v1.0.27"
           latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -n 1)"
           if [[ -z "$latest_tag" ]]; then
-            next_tag="v1.0.0"
+            next_tag="$baseline_tag"
+            previous_tag=""
+          elif [[ "$(printf '%s\n' "$baseline_tag" "$latest_tag" | sort -V | head -n 1)" != "$baseline_tag" ]]; then
+            next_tag="$baseline_tag"
+            previous_tag=""
           elif [[ "$latest_tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             next_tag="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+            previous_tag="$latest_tag"
           else
             echo "无法识别当前版本标签：$latest_tag" >&2
             exit 1
           fi
           echo "tag=$next_tag" >> "$GITHUB_OUTPUT"
-          echo "previous_tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=${previous_tag:-}" >> "$GITHUB_OUTPUT"
 
       - name: Build release binaries
         env:
