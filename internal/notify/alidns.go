@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Kori1c/ecs-controller/internal/cloud"
+	"github.com/JudiLite/ecs-controller/internal/cloud"
 )
 
 type AliDNSClient struct {

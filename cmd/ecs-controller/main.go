@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Kori1c/ecs-controller/internal/app"
-	"github.com/Kori1c/ecs-controller/internal/cloud"
-	"github.com/Kori1c/ecs-controller/internal/server"
-	"github.com/Kori1c/ecs-controller/internal/store"
-	"github.com/Kori1c/ecs-controller/internal/worker"
+	"github.com/JudiLite/ecs-controller/internal/app"
+	"github.com/JudiLite/ecs-controller/internal/cloud"
+	"github.com/JudiLite/ecs-controller/internal/server"
+	"github.com/JudiLite/ecs-controller/internal/store"
+	"github.com/JudiLite/ecs-controller/internal/worker"
 )
 
 func main() {

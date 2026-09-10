@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/Kori1c/ecs-controller/internal/cloud"
+	"github.com/JudiLite/ecs-controller/internal/cloud"
 )
 
 func TestSplitDNSName(t *testing.T) {

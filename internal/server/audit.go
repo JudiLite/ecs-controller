@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Kori1c/ecs-controller/internal/app"
+	"github.com/JudiLite/ecs-controller/internal/app"
 )
 
 type auditResponseWriter struct {

@@ -1,4 +1,4 @@
-module github.com/Kori1c/ecs-controller
+module github.com/JudiLite/ecs-controller
 
 go 1.26
 

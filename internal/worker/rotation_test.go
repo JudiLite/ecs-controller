@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Kori1c/ecs-controller/internal/app"
-	"github.com/Kori1c/ecs-controller/internal/store"
+	"github.com/JudiLite/ecs-controller/internal/app"
+	"github.com/JudiLite/ecs-controller/internal/store"
 )
 
 func rotationTestAccounts(t *testing.T, s *store.Store) (app.Account, app.Account) {

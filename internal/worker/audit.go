@@ -3,7 +3,7 @@ package worker
 import (
 	"fmt"
 
-	"github.com/Kori1c/ecs-controller/internal/app"
+	"github.com/JudiLite/ecs-controller/internal/app"
 )
 
 func (w *Worker) audit(source, action, entityType, entityID, summary string, err error) {

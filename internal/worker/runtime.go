@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Kori1c/ecs-controller/internal/app"
-	"github.com/Kori1c/ecs-controller/internal/notify"
+	"github.com/JudiLite/ecs-controller/internal/app"
+	"github.com/JudiLite/ecs-controller/internal/notify"
 )
 
 const (

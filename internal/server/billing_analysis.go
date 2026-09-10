@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Kori1c/ecs-controller/internal/app"
-	"github.com/Kori1c/ecs-controller/internal/cloud"
+	"github.com/JudiLite/ecs-controller/internal/app"
+	"github.com/JudiLite/ecs-controller/internal/cloud"
 )
 
 const monthlyBillingAnalysisCacheType = "bill_monthly_analysis_v1"

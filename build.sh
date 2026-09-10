@@ -12,9 +12,9 @@ commit=${ECS_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || printf '%s' dev
 build_date=${ECS_BUILD_DATE:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}
 
 ldflags="-s -w \
--X github.com/Kori1c/ecs-controller/internal/app.Version=$version \
--X github.com/Kori1c/ecs-controller/internal/app.Commit=$commit \
--X github.com/Kori1c/ecs-controller/internal/app.BuildDate=$build_date"
+-X github.com/JudiLite/ecs-controller/internal/app.Version=$version \
+-X github.com/JudiLite/ecs-controller/internal/app.Commit=$commit \
+-X github.com/JudiLite/ecs-controller/internal/app.BuildDate=$build_date"
 
 build_target() {
     target_os=$1

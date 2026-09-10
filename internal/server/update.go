@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Kori1c/ecs-controller/internal/app"
+	"github.com/JudiLite/ecs-controller/internal/app"
 )
 
-const defaultUpdateRepo = "elunez/ecs-controller"
+const defaultUpdateRepo = "JudiLite/ecs-controller"
 
 var commitPattern = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
 var versionTagPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)

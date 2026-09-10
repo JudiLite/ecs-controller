@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEPLOY_DIR="${ECS_DEPLOY_DIR:-/opt/ecs-controller}"
+COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
+SETUP_SCRIPT="$DEPLOY_DIR/setup.sh"
+
+if [[ "$(id -u)" -ne 0 ]]; then
+    echo "请使用 root 权限运行：sudo aliyun"
+    exit 1
+fi
+
+compose_available() {
+    [[ -f "$COMPOSE_FILE" ]] && command -v docker >/dev/null 2>&1
+}
+
+service_manager() {
+    if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
+        printf '%s' systemd
+    elif command -v rc-service >/dev/null 2>&1; then
+        printf '%s' openrc
+    else
+        printf '%s' none
+    fi
+}
+
+run_service() {
+    local action="$1" manager
+    if compose_available; then
+        case "$action" in
+            start|stop|restart) (cd "$DEPLOY_DIR" && docker compose "$action" ecs-controller caddy) ;;
+            status) (cd "$DEPLOY_DIR" && docker compose ps) ;;
+            logs) (cd "$DEPLOY_DIR" && docker compose logs --tail=100 -f) ;;
+            *) echo "不支持的 Docker 操作：$action"; return 1 ;;
+        esac
+        return
+    fi
+    manager=$(service_manager)
+    case "$manager:$action" in
+        systemd:start|systemd:stop|systemd:restart)
+            systemctl "$action" ecs-controller.service
+            ;;
+        systemd:status)
+            systemctl status ecs-controller.service --no-pager
+            ;;
+        systemd:logs)
+            journalctl -u ecs-controller.service -n 100 --no-pager
+            ;;
+        openrc:start|openrc:stop|openrc:restart|openrc:status)
+            rc-service ecs-controller "$action"
+            ;;
+        openrc:logs)
+            tail -n 100 /var/log/ecs-controller.log
+            ;;
+        *)
+            echo "未检测到可用的服务管理器。"
+            return 1
+            ;;
+    esac
+}
+
+show_menu() {
+    echo ""
+    echo "ECS Controller 服务菜单"
+    echo "  1) 启动服务"
+    echo "  2) 停止服务"
+    echo "  3) 重启服务"
+    echo "  4) 查看状态"
+    echo "  5) 查看日志"
+    echo "  6) 安装 / 更新"
+    echo "  7) 卸载服务（保留数据）"
+    echo "  0) 退出"
+    printf "请选择 [1]: "
+    read -r choice || choice=1
+    choice="${choice:-1}"
+    case "$choice" in
+        1) run_service start ;;
+        2) run_service stop ;;
+        3) run_service restart ;;
+        4) run_service status ;;
+        5) run_service logs ;;
+        6) exec "$SETUP_SCRIPT" ;;
+        7)
+            if compose_available; then
+                (cd "$DEPLOY_DIR" && docker compose down)
+            elif [[ -f "$SETUP_SCRIPT" ]]; then
+                "$SETUP_SCRIPT"
+            else
+                echo "未找到部署脚本：$SETUP_SCRIPT"
+                exit 1
+            fi
+            ;;
+        0) exit 0 ;;
+        *) echo "无效选项。" ;;
+    esac
+}
+
+if [[ "${1:-}" == "start" || "${1:-}" == "stop" || "${1:-}" == "restart" ||
+      "${1:-}" == "status" || "${1:-}" == "logs" ]]; then
+    run_service "$1"
+else
+    show_menu
+fi

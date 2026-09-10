@@ -4,11 +4,12 @@ set -euo pipefail
 # ECS Controller deployment wizard.
 # Application credentials and Alibaba Cloud settings are configured after the first login.
 
-RELEASE_REPO="${ECS_RELEASE_REPO:-elunez/ecs-controller}"
+RELEASE_REPO="${ECS_RELEASE_REPO:-JudiLite/ecs-controller}"
 SETUP_REPO="${ECS_SETUP_REPO:-JudiLite/ecs-controller}"
 DEPLOY_DIR="${ECS_DEPLOY_DIR:-/opt/ecs-controller}"
 STATE_FILE="$DEPLOY_DIR/.setup_state"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
+DOWNLOAD_WORK_DIR=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -16,6 +17,13 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
 RESET='\033[0m'
+
+cleanup() {
+    if [[ -n "$DOWNLOAD_WORK_DIR" && -d "$DOWNLOAD_WORK_DIR" ]]; then
+        rm -rf "$DOWNLOAD_WORK_DIR"
+    fi
+}
+trap cleanup EXIT
 
 die() {
     echo -e "${RED}错误：$*${RESET}" >&2
@@ -37,6 +45,15 @@ persist_self() {
         curl -fsSL "https://raw.githubusercontent.com/$SETUP_REPO/main/setup.sh" -o "$temp_setup"
         install -m 0755 "$temp_setup" "$DEPLOY_DIR/setup.sh"
         rm -f "$temp_setup"
+    fi
+    if [[ -f "$(dirname "${BASH_SOURCE[0]:-}")/aliyun" ]]; then
+        install -m 0755 "$(dirname "${BASH_SOURCE[0]}")/aliyun" /usr/local/bin/aliyun
+    else
+        local temp_menu
+        temp_menu=$(mktemp)
+        curl -fsSL "https://raw.githubusercontent.com/$SETUP_REPO/main/aliyun" -o "$temp_menu"
+        install -m 0755 "$temp_menu" /usr/local/bin/aliyun
+        rm -f "$temp_menu"
     fi
 }
 
@@ -156,7 +173,7 @@ ensure_docker() {
 }
 
 download_release() {
-    local arch asset version work_dir
+    local arch asset version
     case "$(uname -m)" in
         x86_64|amd64) arch="amd64" ;;
         aarch64|arm64) arch="arm64" ;;
@@ -167,17 +184,18 @@ download_release() {
         sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
     [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "无法获取有效的最新版本。"
     asset="ecs-controller-linux-$arch.tar.gz"
-    work_dir=$(mktemp -d)
-    trap 'rm -rf "$work_dir"' RETURN
+    DOWNLOAD_WORK_DIR=$(mktemp -d)
 
     echo "正在下载 $RELEASE_REPO $version（Linux/$arch）..."
-    curl -fsSL --retry 3 -o "$work_dir/$asset" \
+    curl -fsSL --retry 3 -o "$DOWNLOAD_WORK_DIR/$asset" \
         "https://github.com/$RELEASE_REPO/releases/download/$version/$asset"
     rm -rf "$DEPLOY_DIR/app"
     mkdir -p "$DEPLOY_DIR/app"
-    tar -xzf "$work_dir/$asset" -C "$DEPLOY_DIR/app"
+    tar -xzf "$DOWNLOAD_WORK_DIR/$asset" -C "$DEPLOY_DIR/app"
     [[ -x "$DEPLOY_DIR/app/ecs-controller" ]] || die "发布包缺少 ecs-controller。"
     echo "$version" > "$DEPLOY_DIR/.version"
+    rm -rf "$DOWNLOAD_WORK_DIR"
+    DOWNLOAD_WORK_DIR=""
 }
 
 write_docker_files() {
@@ -272,7 +290,11 @@ install_native() {
 }
 
 write_deploy_info() {
-    local address
+    local address public_ip
+    public_ip=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null ||
+        curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null ||
+        hostname -I 2>/dev/null | awk '{print $1}' ||
+        printf '%s' '服务器IP')
     if [[ "$USE_DOMAIN" == "y" ]]; then
         if [[ "$ENABLE_HTTPS" == "y" ]]; then
             address="https://$DOMAIN"
@@ -282,7 +304,7 @@ write_deploy_info() {
             [[ "$HTTP_PORT" != "80" ]] && address="$address:$HTTP_PORT"
         fi
     else
-        address="http://服务器IP:${APP_PORT}"
+        address="http://$public_ip:${APP_PORT}"
     fi
     cat > "$DEPLOY_DIR/DEPLOY_INFO.txt" <<EOF
 ECS Controller 部署信息
@@ -293,7 +315,24 @@ ECS Controller 部署信息
 首次登录后，请在网页中完成账号、阿里云凭据和其他应用配置。
 EOF
     chmod 0600 "$DEPLOY_DIR/DEPLOY_INFO.txt"
-    echo "访问信息已保存到 $DEPLOY_DIR/DEPLOY_INFO.txt"
+    echo ""
+    echo "============================================================"
+    echo "ECS Controller 部署完成，以下内容可直接复制"
+    echo "============================================================"
+    printf '访问地址: %s\n' "$address"
+    printf '部署方式: %s\n' "$INSTALL_MODE"
+    if [[ "$INSTALL_MODE" == "docker" ]]; then
+        printf '容器名称: %s\n' "$CONTAINER_NAME"
+        printf '部署目录: %s\n' "$DEPLOY_DIR"
+        printf '查看状态: aliyun status\n'
+        printf '服务菜单: aliyun\n'
+    else
+        printf '服务管理: aliyun\n'
+    fi
+    echo "------------------------------------------------------------"
+    echo "访问信息已保存到: $DEPLOY_DIR/DEPLOY_INFO.txt"
+    echo "首次登录后，请在网页中完成账号、阿里云凭据和其他应用配置。"
+    echo "============================================================"
 }
 
 show_status() {

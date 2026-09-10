@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Kori1c/ecs-controller/internal/app"
+	"github.com/JudiLite/ecs-controller/internal/app"
 )
 
 var auditSensitivePattern = regexp.MustCompile(`(?i)(access[_ -]?key[_ -]?secret|secret(?:id|key)?|password|passwd|token|authorization|cookie)\s*[:=]\s*[^\s,;]+`)

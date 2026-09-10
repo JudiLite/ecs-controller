@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Kori1c/ecs-controller/internal/app"
-	"github.com/Kori1c/ecs-controller/internal/cloud"
-	"github.com/Kori1c/ecs-controller/internal/store"
+	"github.com/JudiLite/ecs-controller/internal/app"
+	"github.com/JudiLite/ecs-controller/internal/cloud"
+	"github.com/JudiLite/ecs-controller/internal/store"
 )
 
 func TestTemplateAndStaticAssetsUseCompressionAndCacheHeaders(t *testing.T) {
@@ -119,22 +119,22 @@ func TestCheckForUpdateUsesGitHubReleaseTagsAsDisplayVersions(t *testing.T) {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/repos/elunez/ecs-controller/releases/latest":
+		case "/repos/JudiLite/ecs-controller/releases/latest":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"tag_name": "v1.6.40",
-				"html_url": "https://github.com/elunez/ecs-controller/releases/tag/v1.6.40",
-				"body":     "## 更新内容\n\n- **展示版本更新说明** ([abc1234](https://github.com/elunez/ecs-controller/commit/abc1234))",
+				"html_url": "https://github.com/JudiLite/ecs-controller/releases/tag/v1.6.40",
+				"body":     "## 更新内容\n\n- **展示版本更新说明** ([abc1234](https://github.com/JudiLite/ecs-controller/commit/abc1234))",
 				"assets": []map[string]any{
 					{"name": "ecs-controller-linux-amd64.tar.gz"},
 					{"name": "checksums.txt"},
 					{"name": "checksums.txt.sig"},
 				},
 			})
-		case "/repos/elunez/ecs-controller/commits/v1.6.40":
+		case "/repos/JudiLite/ecs-controller/commits/v1.6.40":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"sha":      latestCommit,
 				"commit":   map[string]any{"message": "release build"},
-				"html_url": "https://github.com/elunez/ecs-controller/commit/" + latestCommit,
+				"html_url": "https://github.com/JudiLite/ecs-controller/commit/" + latestCommit,
 			})
 		default:
 			http.NotFound(w, r)
@@ -167,8 +167,8 @@ func TestCheckForUpdateUsesGitHubReleaseTagsAsDisplayVersions(t *testing.T) {
 	if got := result["current_version"]; got != "v1.6.39" {
 		t.Fatalf("current_version=%q, want v1.6.39", got)
 	}
-	if got := result["repository"]; got != "elunez/ecs-controller" {
-		t.Fatalf("repository=%q, want elunez/ecs-controller", got)
+	if got := result["repository"]; got != "JudiLite/ecs-controller" {
+		t.Fatalf("repository=%q, want JudiLite/ecs-controller", got)
 	}
 	latest, ok := result["latest"].(map[string]any)
 	if !ok || latest["version"] != "v1.6.40" {
@@ -1713,9 +1713,9 @@ func TestOnlineUpdateRequestRequiresUpdaterAndPersistsTarget(t *testing.T) {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/repos/elunez/ecs-controller/releases/tags/v1.6.40":
+		case "/repos/JudiLite/ecs-controller/releases/tags/v1.6.40":
 			_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v1.6.40", "assets": []map[string]any{{"name": "checksums.txt"}}})
-		case "/repos/elunez/ecs-controller/commits/v1.6.40":
+		case "/repos/JudiLite/ecs-controller/commits/v1.6.40":
 			_ = json.NewEncoder(w).Encode(map[string]any{"sha": target, "commit": map[string]any{"message": "release build"}})
 		default:
 			http.NotFound(w, r)

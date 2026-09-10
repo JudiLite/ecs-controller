@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"github.com/Kori1c/ecs-controller/internal/cloud"
+	"github.com/JudiLite/ecs-controller/internal/cloud"
 )
 
 func TestSummarizeBillingCategories(t *testing.T) {

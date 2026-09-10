@@ -19,6 +19,24 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/setup.
 
 安装脚本只负责部署环境，不会询问应用账号、阿里云 AccessKey 或其他业务配置。服务启动后，用浏览器打开安装完成时显示的地址，在首次登录页面完成应用配置。
 
+部署完成后可以直接使用短命令进入服务菜单：
+
+```bash
+sudo aliyun
+```
+
+也可以直接执行操作：
+
+```bash
+sudo aliyun start
+sudo aliyun stop
+sudo aliyun restart
+sudo aliyun status
+sudo aliyun logs
+```
+
+部署向导完成时会同时在终端打印访问地址、部署目录、容器名称和服务管理命令，方便直接复制；完整信息也会保存到 `/opt/ecs-controller/DEPLOY_INFO.txt`。
+
 ```bash
 sudo /opt/ecs-controller/setup.sh
 ```
@@ -58,31 +76,29 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/instal
 
 ### 服务管理
 
-使用 systemd 的 Debian、Ubuntu、CentOS、Rocky Linux 等系统：
+推荐使用统一服务菜单：
 
 ```bash
-sudo systemctl restart ecs-controller
-sudo systemctl status ecs-controller
-sudo systemctl stop ecs-controller
-sudo systemctl start ecs-controller
-sudo journalctl -u ecs-controller -f
+sudo aliyun
 ```
 
-使用 OpenRC 的 Alpine Linux：
+Docker 部署也支持直接使用参数：
 
 ```bash
-sudo rc-service ecs-controller restart
-sudo rc-service ecs-controller status
-sudo rc-service ecs-controller stop
-sudo rc-service ecs-controller start
-sudo tail -f /var/log/ecs-controller.log
+sudo aliyun restart
+sudo aliyun status
+sudo aliyun logs
 ```
 
-修改 `/etc/ecs-controller/ecs-controller.env` 后，需要执行对应系统的重启命令才能生效。后台在线更新服务名为 `ecs-controller-updater`，一般不需要手动操作。
+底层 systemd/OpenRC 命令仍然可用。原生安装修改 `/etc/ecs-controller/ecs-controller.env` 后，需要重启 `ecs-controller` 服务才能生效；后台在线更新服务名为 `ecs-controller-updater`，一般不需要手动操作。
 
 服务默认只监听服务器本机的 `43211` 端口，请通过你现有的 HTTPS 访问方式打开面板，不要直接开放这个端口。
 
 公网使用 Passkey 时必须使用 HTTPS。
+
+### GitHub Release
+
+本项目会通过 GitHub Actions 在 `main` 分支更新后自动构建并发布 Linux AMD64、Linux ARM64、Windows AMD64 和 Windows ARM64 安装包。部署脚本默认从本项目的 [GitHub Releases](https://github.com/JudiLite/ecs-controller/releases) 下载，不依赖上游仓库的 Release。
 
 ### 卸载服务
 
@@ -208,5 +224,5 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
 
 - 二次开发项目：https://github.com/JudiLite/ecs-controller
 - 问题反馈：https://github.com/JudiLite/ecs-controller/issues
-- 上游项目：https://github.com/elunez/ecs-controller
+- 上游项目（功能基础与部分代码来源）：https://github.com/elunez/ecs-controller
 - 许可证：[MIT](./LICENSE)

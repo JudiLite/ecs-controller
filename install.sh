@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo=${ECS_UPDATE_REPO:-elunez/ecs-controller}
+repo=${ECS_UPDATE_REPO:-JudiLite/ecs-controller}
 install_root=${ECS_INSTALL_ROOT:-/opt/ecs-controller}
 data_dir=${ECS_DATA_DIR:-/var/lib/ecs-controller}
 listen_addr=${ECS_HTTP_ADDR:-127.0.0.1:43211}
