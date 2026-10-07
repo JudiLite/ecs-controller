@@ -630,6 +630,9 @@ func (w *Worker) Run(ctx context.Context) {
 			if job.Kind == "delete_instance" {
 				maxAttempts = 20
 			}
+			if job.Kind == "cleanup_eip" {
+				maxAttempts = 20
+			}
 			if job.Attempts < maxAttempts {
 				_ = w.Store.RetryJob(job.JobID, retryDelay(job.Attempts), err.Error())
 				w.finishRuntime(runtimeJobQueue, started, "任务执行失败，已进入重试", time.Time{}, err)
@@ -647,6 +650,8 @@ func (w *Worker) Run(ctx context.Context) {
 					action, entityType, summary = "ecs_create", "ecs_task", "ECS 创建任务失败"
 				} else if job.Kind == "delete_instance" {
 					action, entityType, summary = "instance_release", "instance", "实例释放任务失败"
+				} else if job.Kind == "cleanup_eip" {
+					action, entityType, summary = "eip_cleanup", "eip", "旧 EIP 清理任务失败"
 				}
 				w.audit(app.AuditSourceJob, action, entityType, job.EntityKey, summary, err)
 			}
@@ -658,6 +663,8 @@ func (w *Worker) Run(ctx context.Context) {
 			action, entityType, summary = "ecs_create", "ecs_task", "ECS 创建任务完成"
 		} else if job.Kind == "delete_instance" {
 			action, entityType, summary = "instance_release", "instance", "实例释放任务完成"
+		} else if job.Kind == "cleanup_eip" {
+			action, entityType, summary = "eip_cleanup", "eip", "旧 EIP 清理任务完成"
 		}
 		w.audit(app.AuditSourceJob, action, entityType, job.EntityKey, summary, nil)
 		w.finishRuntime(runtimeJobQueue, started, "已完成 "+job.Kind, time.Time{}, nil)
@@ -671,6 +678,8 @@ func (w *Worker) execute(ctx context.Context, job *store.Job) error {
 		return w.createECS(ctx, job)
 	case "delete_instance":
 		return w.deleteInstance(ctx, job)
+	case "cleanup_eip":
+		return w.cleanupEIP(ctx, job)
 	default:
 		return fmt.Errorf("unknown job kind %q", job.Kind)
 	}
@@ -716,7 +725,7 @@ func (w *Worker) deleteInstance(ctx context.Context, job *store.Job) error {
 		if err := client.UnassociateEIP(ctx, account.RegionID, account.EIPAllocationID); err != nil && !cloud.IsNotFound(err) {
 			return err
 		}
-		if err := client.ReleaseEIP(ctx, account.RegionID, account.EIPAllocationID); err != nil && !cloud.IsNotFound(err) {
+		if err := cloud.CleanupEIP(ctx, client, account.RegionID, account.EIPAllocationID); err != nil && !cloud.IsNotFound(err) {
 			return err
 		}
 	}
@@ -734,6 +743,37 @@ func (w *Worker) deleteInstance(ctx context.Context, job *store.Job) error {
 	w.dispatchEvent(ctx, notify.Event{Title: "实例已释放", Summary: "实例已从云端释放，本地记录已清理。", AccountID: accountLabel(*account), Text: fmt.Sprintf("【ECS 控制台】ECS 已释放\n实例: %s\n实例 ID: %s\n区域: %s\n公网 IP: %s\n时间: %s", accountLabel(*account), account.InstanceID, account.RegionID, account.PublicIP, time.Now().Format("2006-01-02 15:04:05")), Fields: map[string]string{"instance_id": account.InstanceID, "region": account.RegionID, "public_ip": account.PublicIP}})
 	w.Store.AddLog("info", "实例已异步释放: "+account.InstanceID)
 	return nil
+}
+
+func (w *Worker) cleanupEIP(ctx context.Context, job *store.Job) error {
+	var payload struct {
+		AccountID    int64  `json:"accountId"`
+		RegionID     string `json:"regionId"`
+		AllocationID string `json:"allocationId"`
+	}
+	if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+		return err
+	}
+	allocationID := payload.AllocationID
+	if allocationID == "" {
+		allocationID = job.EntityKey
+	}
+	if allocationID == "" || payload.AccountID == 0 {
+		return fmt.Errorf("EIP 清理任务缺少账号或 allocationId")
+	}
+	account, err := w.Store.Account(payload.AccountID, true)
+	if err != nil {
+		return err
+	}
+	region := payload.RegionID
+	if region == "" {
+		region = account.RegionID
+	}
+	client := w.cloudClient(app.AccountGroup{AccessKeyID: account.AccessKeyID, AccessKeySecret: account.AccessKeySecret, RegionID: region, SiteType: account.SiteType})
+	if client == nil {
+		return fmt.Errorf("cloud client is not configured")
+	}
+	return cloud.CleanupEIP(ctx, client, region, allocationID)
 }
 
 func (w *Worker) createECS(ctx context.Context, job *store.Job) (err error) {

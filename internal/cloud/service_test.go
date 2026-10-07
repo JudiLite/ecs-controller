@@ -134,7 +134,7 @@ func TestDescribeCommonBandwidthPackagesKeepsActivePackages(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"CommonBandwidthPackages": []any{
 				map[string]any{"BandwidthPackageId": "cbwp-available", "CommonBandwidthPackageName": "可用带宽", "Bandwidth": 200, "Status": "Available", "ISP": "BGP"},
-				map[string]any{"BandwidthPackageId": "cbwp-inuse", "CommonBandwidthPackageName": "使用中带宽", "Bandwidth": 500, "Status": "InUse", "ISP": "BGP_PRO"},
+				map[string]any{"BandwidthPackageId": "cbwp-inuse", "CommonBandwidthPackageName": "使用中带宽", "Bandwidth": 500, "Status": "InUse", "ISP": "BGP_PRO", "PublicIpAddresses": map[string]any{"PublicIpAddress": []any{map[string]any{"AllocationId": "eip-old", "EipAddress": "203.0.113.10", "Status": "Available"}}}},
 				map[string]any{"BandwidthPackageId": "cbwp-deleted", "Name": "已删除", "Bandwidth": 100, "Status": "Deleted"},
 			},
 		})
@@ -147,6 +147,49 @@ func TestDescribeCommonBandwidthPackagesKeepsActivePackages(t *testing.T) {
 	}
 	if len(packages) != 2 || packages[1]["id"] != "cbwp-inuse" || packages[1]["lineType"] != "BGP_PRO" {
 		t.Fatalf("unexpected shared bandwidth packages: %#v", packages)
+	}
+	eips, ok := packages[1]["eips"].([]map[string]any)
+	if !ok || len(eips) != 1 || eips[0]["allocationId"] != "eip-old" {
+		t.Fatalf("shared bandwidth members were not parsed: %#v", packages[1]["eips"])
+	}
+}
+
+func TestCleanupEIPRemovesSharedBandwidthBeforeRelease(t *testing.T) {
+	actions := make([]string, 0)
+	describeCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		action := r.URL.Query().Get("Action")
+		actions = append(actions, action)
+		w.Header().Set("Content-Type", "application/json")
+		switch action {
+		case "DescribeCommonBandwidthPackages":
+			describeCalls++
+			if describeCalls == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{"CommonBandwidthPackages": []any{map[string]any{"BandwidthPackageId": "cbwp-1", "Status": "InUse", "PublicIpAddresses": map[string]any{"PublicIpAddress": []any{map[string]any{"AllocationId": "eip-old"}}}}}})
+			} else {
+				_ = json.NewEncoder(w).Encode(map[string]any{"CommonBandwidthPackages": []any{map[string]any{"BandwidthPackageId": "cbwp-1", "Status": "InUse"}}})
+			}
+		case "RemoveCommonBandwidthPackageIp":
+			if r.URL.Query().Get("BandwidthPackageId") != "cbwp-1" || r.URL.Query().Get("IpInstanceId") != "eip-old" {
+				t.Fatalf("unexpected remove request: %v", r.URL.Query())
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{})
+		case "ReleaseEipAddress":
+			if describeCalls < 2 {
+				t.Fatalf("release happened before shared bandwidth removal: %v", actions)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{})
+		default:
+			t.Fatalf("unexpected action: %s", action)
+		}
+	}))
+	defer server.Close()
+	service := &Service{EIP: &RPCClient{HTTPClient: server.Client(), Endpoint: server.URL, Version: "2016-04-28", Product: "Vpc", AccessKey: "ak", Secret: "sk"}}
+	if err := CleanupEIP(context.Background(), service, "cn-hongkong", "eip-old"); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 4 || actions[0] != "DescribeCommonBandwidthPackages" || actions[1] != "RemoveCommonBandwidthPackageIp" || actions[2] != "DescribeCommonBandwidthPackages" || actions[3] != "ReleaseEipAddress" {
+		t.Fatalf("unexpected cleanup order: %v", actions)
 	}
 }
 

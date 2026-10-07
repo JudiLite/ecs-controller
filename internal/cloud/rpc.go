@@ -196,6 +196,26 @@ func IsEIPOperationPending(err error) bool {
 	return strings.Contains(message, "eip is being") || strings.Contains(message, "operation conflict") || strings.Contains(message, "processing")
 }
 
+// IsNotInCommonBandwidthPackage reports the idempotent response returned when
+// an EIP has already been removed from a shared bandwidth package.
+func IsNotInCommonBandwidthPackage(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		code := strings.ToLower(apiErr.Code)
+		if strings.Contains(code, "notincommonbandwidth") || strings.Contains(code, "notinbandwidthpackage") || strings.Contains(code, "ipinstancenotfound") {
+			return true
+		}
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "not in common bandwidth") ||
+		strings.Contains(message, "not in bandwidth package") ||
+		strings.Contains(message, "not associated with common bandwidth") ||
+		strings.Contains(message, "does not belong to the common bandwidth")
+}
+
 func IsCredentialError(err error) bool {
 	if err == nil {
 		return false

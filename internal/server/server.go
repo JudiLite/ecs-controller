@@ -1795,7 +1795,9 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 		if err == nil {
 			err = sharedClient.AddEIPToCommonBandwidthPackage(operationCtx, a.RegionID, bandwidthPackageID, alloc)
 			if err != nil {
-				_ = releaseEIPWithRetry(operationCtx, client, a.RegionID, alloc)
+				if cleanupErr := cloud.CleanupEIP(operationCtx, client, a.RegionID, alloc); cleanupErr != nil {
+					_ = s.enqueueEIPCleanup(a.ID, a.RegionID, alloc)
+				}
 			}
 		}
 	} else {
@@ -1806,7 +1808,9 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 		return
 	}
 	if err = unassociateEIPWithRetry(operationCtx, client, a.RegionID, oldAllocationID, a.InstanceID); err != nil && !cloud.IsNotFound(err) {
-		_ = releaseEIPWithRetry(operationCtx, client, a.RegionID, alloc)
+		if cleanupErr := cloud.CleanupEIP(operationCtx, client, a.RegionID, alloc); cleanupErr != nil {
+			_ = s.enqueueEIPCleanup(a.ID, a.RegionID, alloc)
+		}
 		s.error(w, 400, "旧 EIP 解绑失败: "+err.Error())
 		return
 	}
@@ -1816,16 +1820,24 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 		// replacement so a failed change does not strand the instance.
 		restoreErr := associateEIPWithRetry(operationCtx, client, a.RegionID, oldAllocationID, a.InstanceID)
 		if restoreErr == nil {
-			_ = releaseEIPWithRetry(operationCtx, client, a.RegionID, alloc)
+			if cleanupErr := cloud.CleanupEIP(operationCtx, client, a.RegionID, alloc); cleanupErr != nil {
+				_ = s.enqueueEIPCleanup(a.ID, a.RegionID, alloc)
+			}
 			s.error(w, 400, "新 EIP 绑定失败，已恢复旧 EIP: "+err.Error())
 		} else {
 			s.error(w, 400, "新 EIP 绑定失败，旧 EIP 恢复也失败: "+err.Error()+"；恢复失败: "+restoreErr.Error())
 		}
 		return
 	}
+	cleanupPending := false
 	if releaseOld {
-		if err = releaseEIPWithRetry(operationCtx, client, a.RegionID, oldAllocationID); err != nil && !cloud.IsNotFound(err) {
-			s.Store.AddLog("warning", "旧 EIP 释放失败: "+err.Error())
+		if cleanupErr := cloud.CleanupEIP(operationCtx, client, a.RegionID, oldAllocationID); cleanupErr != nil {
+			cleanupPending = true
+			if enqueueErr := s.enqueueEIPCleanup(a.ID, a.RegionID, oldAllocationID); enqueueErr != nil {
+				s.Store.AddLog("warning", "旧 EIP 清理任务入队失败: "+enqueueErr.Error()+"；清理错误: "+cleanupErr.Error())
+			} else {
+				s.Store.AddLog("warning", "旧 EIP 清理已转入后台重试: "+cleanupErr.Error())
+			}
 		}
 	}
 	if err := s.Store.UpdateNetwork(id, map[string]any{"eip_allocation_id": alloc, "eip_address": ip, "public_ip": ip, "public_ip_mode": "eip", "eip_managed": true}); err != nil {
@@ -1833,7 +1845,22 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 		return
 	}
 	s.dispatchEvent(rctx(), notify.Event{Title: "公网 IP 已更换", Summary: fmt.Sprintf("%s 的公网 IP 已更换", accountDisplay(*a)), AccountID: accountDisplay(*a), Text: fmt.Sprintf("【ECS 控制台】公网 IP 已更换\n实例: %s\n旧 IP: %s\n新 IP: %s\n区域: %s", accountDisplay(*a), oldIP, ip, a.RegionID), Fields: map[string]string{"old_ip": oldIP, "new_ip": ip, "instance_id": a.InstanceID}})
-	s.json(w, 200, map[string]any{"success": true, "message": "公网 IP 已更换", "data": map[string]any{"publicIp": ip, "publicIpMode": "eip", "eipAllocationId": alloc, "eipAddress": ip, "eipManaged": true, "internetMaxBandwidthOut": a.InternetBandwidth}})
+	message := "公网 IP 已更换"
+	if cleanupPending {
+		message += "，旧 EIP 清理任务已排队"
+	}
+	s.json(w, 200, map[string]any{"success": true, "message": message, "data": map[string]any{"publicIp": ip, "publicIpMode": "eip", "eipAllocationId": alloc, "eipAddress": ip, "eipManaged": true, "internetMaxBandwidthOut": a.InternetBandwidth, "oldEipCleanupPending": cleanupPending}})
+}
+
+func (s *Server) enqueueEIPCleanup(accountID int64, region, allocationID string) error {
+	if allocationID == "" {
+		return nil
+	}
+	return s.Store.EnqueueJob(randomToken(16), "cleanup_eip", allocationID, map[string]any{
+		"accountId":    accountID,
+		"regionId":     region,
+		"allocationId": allocationID,
+	})
 }
 
 func associateEIPWithRetry(ctx context.Context, client cloud.Client, region, allocationID, instanceID string) error {

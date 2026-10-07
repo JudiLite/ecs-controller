@@ -248,6 +248,7 @@ type BandwidthEIPClient interface {
 type SharedBandwidthEIPClient interface {
 	DescribeCommonBandwidthPackages(context.Context, string) ([]map[string]any, error)
 	AddEIPToCommonBandwidthPackage(context.Context, string, string, string) error
+	RemoveEIPFromCommonBandwidthPackage(context.Context, string, string, string) error
 }
 
 type Service struct{ ECS, VPC, EIP, CMS, CDT, BSS *RPCClient }
@@ -815,6 +816,7 @@ func (s *Service) DescribeCommonBandwidthPackages(ctx context.Context, region st
 			"status":         status,
 			"businessStatus": firstString(item, "BusinessStatus", "businessStatus"),
 			"lineType":       firstString(item, "ISP", "Isp", "LineType", "lineType"),
+			"eips":           commonBandwidthPackageEIPs(item),
 		})
 	}
 	return packages, nil
@@ -828,6 +830,53 @@ func (s *Service) AddEIPToCommonBandwidthPackage(ctx context.Context, region, pa
 		"IpType":             "EIP",
 	})
 	return err
+}
+func (s *Service) RemoveEIPFromCommonBandwidthPackage(ctx context.Context, region, packageID, allocationID string) error {
+	_, err := s.EIP.Call(ctx, "RemoveCommonBandwidthPackageIp", map[string]string{
+		"RegionId":           region,
+		"BandwidthPackageId": packageID,
+		"IpInstanceId":       allocationID,
+	})
+	return err
+}
+
+func commonBandwidthPackageEIPs(item map[string]any) []map[string]any {
+	entries := make([]map[string]any, 0)
+	for _, key := range []string{"PublicIpAddresses", "Eips", "EIPs", "IpInstances"} {
+		value, ok := item[key]
+		if !ok {
+			continue
+		}
+		switch typed := value.(type) {
+		case []any:
+			entries = append(entries, anyMaps(typed)...)
+		case map[string]any:
+			for _, nestedKey := range []string{"PublicIpAddress", "PublicIpAddresse", "EipAddress", "Eips", "EIPs", "IpInstance"} {
+				if nested := mapsAt(typed, nestedKey); len(nested) > 0 {
+					entries = append(entries, nested...)
+				}
+			}
+			if len(entries) == 0 {
+				entries = append(entries, typed)
+			}
+		}
+		if len(entries) > 0 {
+			break
+		}
+	}
+	result := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		allocationID := firstString(entry, "AllocationId", "AllocationID", "IpInstanceId", "IpInstanceID", "Id", "id")
+		if allocationID == "" {
+			continue
+		}
+		result = append(result, map[string]any{
+			"allocationId": allocationID,
+			"address":      firstString(entry, "EipAddress", "EIPAddress", "IpAddress", "PublicIpAddress", "Address"),
+			"status":       firstString(entry, "Status", "BandwidthPackageIpRelationStatus", "RelationStatus"),
+		})
+	}
+	return result
 }
 func (s *Service) AssociateEIP(ctx context.Context, region, allocationID, instanceID string) error {
 	_, err := s.EIP.Call(ctx, "AssociateEipAddress", map[string]string{"RegionId": region, "AllocationId": allocationID, "InstanceId": instanceID, "InstanceType": "EcsInstance"})
