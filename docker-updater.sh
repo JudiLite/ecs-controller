@@ -139,6 +139,13 @@ run_update() {
     backup_dir=$deploy_dir/.app-backup-$target
     rm -rf "$backup_dir"
     mv "$deploy_dir/app" "$backup_dir"
+    if [ -f "$backup_dir/Dockerfile" ]; then
+        cp "$backup_dir/Dockerfile" "$extracted/Dockerfile"
+    else
+        write_status error failed "原部署目录缺少 Dockerfile，无法完成 Docker 更新" 0 "$target" "$current" "$version" "$request_id"
+        mv "$backup_dir" "$deploy_dir/app"
+        return
+    fi
     mv "$extracted" "$deploy_dir/app"
     write_status running restarting "新版本已就绪，正在重建 Docker 容器" 72 "$target" "$current" "$version" "$request_id"
     if docker compose -f "$deploy_dir/docker-compose.yml" --project-directory "$deploy_dir" up -d --build ecs-controller &&
