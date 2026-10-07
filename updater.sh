@@ -124,10 +124,11 @@ run_update() {
     update_request_id=$(read_field request_id "$processing_file")
     previous_commit=$(current_commit)
 
-    case "$target" in
-        [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]) ;;
-        *) write_status error failed "更新请求中的提交版本无效" 0 "$target" "$previous_commit" "$version"; return ;;
-    esac
+    if ! printf '%s' "$target" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+        write_status error failed "更新请求中的提交版本无效" 0 "$target" "$previous_commit" "$version"
+        return
+    fi
+
     if ! printf '%s' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
         write_status error failed "更新请求中的发布版本无效" 0 "$target" "$previous_commit" "$version"
         return
