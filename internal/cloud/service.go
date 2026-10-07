@@ -781,15 +781,24 @@ func (s *Service) DescribeCommonBandwidthPackages(ctx context.Context, region st
 	}
 	packages := make([]map[string]any, 0)
 	for _, item := range mapsAt(result, "CommonBandwidthPackages.CommonBandwidthPackage") {
-		status := strings.ToLower(stringValue(item["Status"]))
-		if status != "" && status != "available" {
+		status := firstString(item, "Status", "status")
+		statusKey := strings.ToLower(status)
+		// A package can be Available or already attached to another EIP while
+		// still being a valid target for a replacement. Only hide terminal
+		// states; filtering everything except Available made existing packages
+		// disappear from the replacement dialog.
+		if statusKey == "deleted" || statusKey == "deleting" || statusKey == "failed" || statusKey == "expired" {
+			continue
+		}
+		id := firstString(item, "BandwidthPackageId", "bandwidthPackageId", "Id", "id")
+		if id == "" {
 			continue
 		}
 		packages = append(packages, map[string]any{
-			"id":        stringValue(item["BandwidthPackageId"]),
-			"name":      stringValue(item["Name"]),
-			"bandwidth": intValue(item["Bandwidth"]),
-			"status":    stringValue(item["Status"]),
+			"id":        id,
+			"name":      firstString(item, "Name", "name"),
+			"bandwidth": firstInt(item, "Bandwidth", "bandwidth", "InternetMaxBandwidthOut"),
+			"status":    status,
 		})
 	}
 	return packages, nil

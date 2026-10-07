@@ -1280,6 +1280,31 @@ func TestSyncGroupPreservesReleaseAndQueuesMissingInstances(t *testing.T) {
 	}
 }
 
+func TestManualSyncRestoresHiddenInstanceStillPresentInCloud(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.SaveGroups([]app.AccountGroup{{GroupKey: "group-hidden", AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-test", MaxTraffic: 200}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertAccount(app.Account{AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-test", GroupKey: "group-hidden", InstanceID: "i-hidden", InstanceStatus: "Stopped", IsDeleted: 1}); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(st, t.TempDir(), "")
+	srv.CloudFactory = func(app.Account) cloud.Client {
+		return &fakeSyncClient{instances: []cloud.Instance{{ID: "i-hidden", Status: "Running", PublicIP: "203.0.113.30"}}}
+	}
+	if count, err := srv.syncGroup("group-hidden"); err != nil || count != 1 {
+		t.Fatalf("manual sync result: count=%d err=%v", count, err)
+	}
+	account, err := st.Account(1, false)
+	if err != nil || account.IsDeleted != 0 || account.InstanceStatus != "Running" {
+		t.Fatalf("hidden cloud-present instance was not restored: %#v %v", account, err)
+	}
+}
+
 func TestAutomaticInventoryRequiresTwoConsecutiveMissingObservations(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {

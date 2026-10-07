@@ -382,6 +382,26 @@
             min-width: 0;
         }
 
+        .replace-ip-bandwidth-field .select-trigger {
+            min-height: 46px;
+            border-radius: 12px;
+        }
+
+        .replace-ip-bandwidth-hint,
+        .replace-ip-bandwidth-error {
+            margin: 8px 2px 0;
+            font-size: 0.78rem;
+            line-height: 1.45;
+        }
+
+        .replace-ip-bandwidth-hint {
+            color: var(--muted);
+        }
+
+        .replace-ip-bandwidth-error {
+            color: #b42318;
+        }
+
         .select-shell {
             position: relative;
             width: 100%;
@@ -6303,10 +6323,12 @@
                     </label>
                     <div class="mt-4">
                         <label class="field-label">共享带宽</label>
-                        <select v-model="replaceIpDraft.bandwidthPackageId" class="glass-input">
-                            <option value="">不加入共享带宽</option>
-                            <option v-for="item in replaceIpDraft.bandwidthPackages" :key="item.id" :value="item.id">{{ item.name || item.id }}{{ item.bandwidth ? ` · ${item.bandwidth} Mbps` : '' }}</option>
-                        </select>
+                        <div class="replace-ip-bandwidth-field">
+                            <app-select v-model="replaceIpDraft.bandwidthPackageId" class="glass-select" :options="replaceIpBandwidthOptions" :disabled="replaceIpDraft.bandwidthLoading" />
+                            <p v-if="replaceIpDraft.bandwidthLoading" class="replace-ip-bandwidth-hint">正在读取当前地域的共享带宽...</p>
+                            <p v-else-if="replaceIpDraft.bandwidthError" class="replace-ip-bandwidth-error">{{ replaceIpDraft.bandwidthError }}</p>
+                            <p v-else-if="replaceIpDraft.bandwidthPackages.length === 0" class="replace-ip-bandwidth-hint">当前账号和地域没有可用的共享带宽，或接口暂未返回资源。</p>
+                        </div>
                         <p class="mt-2 text-xs leading-5 text-[var(--muted)]">新 EIP 将按当前实例带宽创建；选择共享带宽后，新 EIP 会直接加入该共享带宽。</p>
                     </div>
                 </div>
@@ -7528,7 +7550,7 @@
                 const rotationGroupDraft = ref(createDefaultRotationGroup());
                 const showInstanceScheduleModal = ref(false);
                 const showReplaceIpModal = ref(false);
-                const replaceIpDraft = ref({ accountId: 0, label: '', regionId: '', releaseOldEIP: true, bandwidthPackageId: '', bandwidthPackages: [], loading: false });
+                const replaceIpDraft = ref({ accountId: 0, label: '', regionId: '', releaseOldEIP: true, bandwidthPackageId: '', bandwidthPackages: [], bandwidthLoading: false, bandwidthError: '', loading: false });
                 const savingInstanceSchedule = ref(false);
                 const instanceScheduleDraft = ref({
                     accountId: 0,
@@ -8055,6 +8077,18 @@
                     if (!value) return '未配置账号';
                     return value.length <= 7 ? value : `${value.slice(0, 7)}***`;
                 };
+
+                const replaceIpBandwidthOptions = computed(() => {
+                    const options = [{ value: '', label: '不加入共享带宽' }];
+                    (replaceIpDraft.value.bandwidthPackages || []).forEach((item) => {
+                        const value = String(item.id || '').trim();
+                        if (!value) return;
+                        let label = item.name || value;
+                        if (item.bandwidth) label += ' · ' + item.bandwidth + ' Mbps';
+                        options.push({ value, label });
+                    });
+                    return options;
+                });
 
                 const accountOptions = computed(() => {
                     const options = [];
@@ -9069,19 +9103,26 @@
 
                 const closeReplaceIpModal = () => {
                     showReplaceIpModal.value = false;
-                    replaceIpDraft.value = { accountId: 0, label: '', regionId: '', releaseOldEIP: true, bandwidthPackageId: '', bandwidthPackages: [], loading: false };
+                    replaceIpDraft.value = { accountId: 0, label: '', regionId: '', releaseOldEIP: true, bandwidthPackageId: '', bandwidthPackages: [], bandwidthLoading: false, bandwidthError: '', loading: false };
                 };
 
                 const openReplaceIpModal = async (instance) => {
                     const accountId = Number(instance.id || instance.accountId || 0);
-                    replaceIpDraft.value = { accountId, label: instance.remark || instance.instanceName || instance.instanceId || '未命名实例', regionId: instance.regionId || instance.region || '', releaseOldEIP: true, bandwidthPackageId: '', bandwidthPackages: [], loading: false };
+                    replaceIpDraft.value = { accountId, label: instance.remark || instance.instanceName || instance.instanceId || '未命名实例', regionId: instance.regionId || instance.region || '', releaseOldEIP: true, bandwidthPackageId: '', bandwidthPackages: [], bandwidthLoading: true, bandwidthError: '', loading: false };
                     showReplaceIpModal.value = true;
                     try {
                         const res = await fetch('index.php?action=get_shared_bandwidth_packages', { method: 'POST', body: JSON.stringify({ accountId, regionId: replaceIpDraft.value.regionId }) });
                         const data = await res.json();
-                        if (res.ok && data.success) replaceIpDraft.value.bandwidthPackages = Array.isArray(data.data) ? data.data : [];
+                        if (!res.ok || !data.success) {
+                            replaceIpDraft.value.bandwidthError = data.message || '共享带宽查询失败，请检查账号权限和地域。';
+                        } else {
+                            replaceIpDraft.value.bandwidthPackages = Array.isArray(data.data) ? data.data : [];
+                        }
                     } catch (error) {
                         console.error('Load shared bandwidth packages failed', error);
+                        replaceIpDraft.value.bandwidthError = '共享带宽查询失败，请检查网络或账号权限。';
+                    } finally {
+                        replaceIpDraft.value.bandwidthLoading = false;
                     }
                 };
 
@@ -10547,6 +10588,7 @@
                     showInstanceScheduleModal,
                     showReplaceIpModal,
                     replaceIpDraft,
+                    replaceIpBandwidthOptions,
                     showLoginModal,
                     systemLogs,
 					auditFilters,

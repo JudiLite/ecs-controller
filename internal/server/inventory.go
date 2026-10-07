@@ -125,9 +125,16 @@ func (s *Server) syncGroupContext(ctx context.Context, groupKey string, confirmM
 		if existing != nil {
 			_ = s.Store.SetSetting(inventoryMissingKey(existing.ID), "0")
 		}
-		if existing != nil && (existing.IsDeleted != 0 || existing.InstanceStatus == "Releasing") {
-			// A user-triggered release must not be resurrected by a manual sync
-			// while the remote ECS record is still visible.
+		if existing != nil && existing.InstanceStatus == "Releasing" {
+			// A user-triggered release must not be resurrected while the remote
+			// ECS record is still visible. Other hidden rows may be stale local
+			// state and are restored by an explicit manual sync below.
+			continue
+		}
+		if existing != nil && existing.IsDeleted != 0 && confirmMissing {
+			// Background reconciliation must not undo a deliberate local hide.
+			// The manual sync path is allowed to repair a stale hidden row when
+			// DescribeInstances proves that the cloud instance still exists.
 			continue
 		}
 		a := app.Account{AccessKeyID: group.AccessKeyID, AccessKeySecret: group.AccessKeySecret, RegionID: group.RegionID, InstanceID: instance.ID, MaxTraffic: group.MaxTraffic, Remark: group.Remark, SiteType: group.SiteType, GroupKey: group.GroupKey, InstanceName: instance.Name, InstanceType: instance.InstanceType, InternetBandwidth: instance.InternetBandwidth, PublicIP: instance.PublicIP, PublicIPMode: "ecs_public_ip", PrivateIP: instance.PrivateIP, CPU: instance.CPU, Memory: instance.Memory, OSName: instance.OSName, InstanceStatus: instance.Status, HealthStatus: "ok", UpdatedAt: time.Now().Unix()}
