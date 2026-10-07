@@ -1210,6 +1210,96 @@ func TestReplacementEIPBandwidthClampsInvalidPeakValues(t *testing.T) {
 	}
 }
 
+type fakeEIPAssociationClient struct {
+	cloud.Client
+	associateErrors   []error
+	unassociateErrors []error
+	releaseErrors     []error
+	associateCalls    int
+	unassociateCalls  int
+	releaseCalls      int
+	publicNetworks    map[string]cloud.InstancePublicNetwork
+}
+
+func (f *fakeEIPAssociationClient) UnassociateEIP(context.Context, string, string) error {
+	index := f.unassociateCalls
+	f.unassociateCalls++
+	if index < len(f.unassociateErrors) {
+		return f.unassociateErrors[index]
+	}
+	return nil
+}
+
+func (f *fakeEIPAssociationClient) DescribeInstancePublicNetworks(context.Context, string, []string) (map[string]cloud.InstancePublicNetwork, error) {
+	return f.publicNetworks, nil
+}
+
+func (f *fakeEIPAssociationClient) AssociateEIP(context.Context, string, string, string) error {
+	index := f.associateCalls
+	f.associateCalls++
+	if index < len(f.associateErrors) {
+		return f.associateErrors[index]
+	}
+	return nil
+}
+
+func (f *fakeEIPAssociationClient) ReleaseEIP(context.Context, string, string) error {
+	index := f.releaseCalls
+	f.releaseCalls++
+	if index < len(f.releaseErrors) {
+		return f.releaseErrors[index]
+	}
+	return nil
+}
+
+func TestEIPAssociationRetriesPropagationConflict(t *testing.T) {
+	client := &fakeEIPAssociationClient{associateErrors: []error{
+		&cloud.APIError{Code: "InvalidAction.Duplicated", Message: "Specified instance already is associated."},
+		&cloud.APIError{Code: "InvalidAction.Duplicated", Message: "Specified instance already is associated."},
+		nil,
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := associateEIPWithRetry(ctx, client, "cn-test", "eip-new", "i-1"); err != nil {
+		t.Fatal(err)
+	}
+	if client.associateCalls != 3 {
+		t.Fatalf("associate calls = %d, want 3", client.associateCalls)
+	}
+}
+
+func TestEIPReleaseRetriesPendingOperation(t *testing.T) {
+	client := &fakeEIPAssociationClient{releaseErrors: []error{
+		&cloud.APIError{Code: "IncorrectEipStatus", Message: "EIP is being processed"},
+		nil,
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := releaseEIPWithRetry(ctx, client, "cn-test", "eip-old"); err != nil {
+		t.Fatal(err)
+	}
+	if client.releaseCalls != 2 {
+		t.Fatalf("release calls = %d, want 2", client.releaseCalls)
+	}
+}
+
+func TestEIPUnassociateTreatsAlreadyDetachedAllocationAsSuccess(t *testing.T) {
+	client := &fakeEIPAssociationClient{
+		unassociateErrors: []error{
+			&cloud.APIError{Code: "IncorrectEipStatus", Message: "Current elastic IP status does not support this operation."},
+		},
+		publicNetworks: map[string]cloud.InstancePublicNetwork{},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := unassociateEIPWithRetry(ctx, client, "cn-test", "eip-old", "i-1"); err != nil {
+		t.Fatal(err)
+	}
+	if client.unassociateCalls != 1 {
+		t.Fatalf("unassociate calls = %d, want 1", client.unassociateCalls)
+	}
+}
+
 func TestEnrichBillingDetailsAddsCurrentResourceWithoutChangingBillValues(t *testing.T) {
 	items := []cloud.BillingDetail{{
 		InstanceID: "eip-1",

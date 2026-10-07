@@ -162,6 +162,40 @@ func IsNotFound(err error) bool {
 		strings.Contains(message, "instanceid does not exist")
 }
 
+// IsEIPAssociationConflict reports the transient error returned while an
+// earlier EIP association or disassociation is still being propagated.
+func IsEIPAssociationConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		code := strings.ToLower(apiErr.Code)
+		if strings.Contains(code, "duplicated") || strings.Contains(code, "alreadyassociated") || strings.Contains(code, "already_associated") {
+			return true
+		}
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "already is associated") || strings.Contains(message, "already associated")
+}
+
+// IsEIPOperationPending covers the short-lived state transitions returned by
+// EIP release APIs after a recent association change.
+func IsEIPOperationPending(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		code := strings.ToLower(apiErr.Code)
+		if strings.Contains(code, "incorrecteipstatus") || strings.Contains(code, "operationconflict") || strings.Contains(code, "processing") {
+			return true
+		}
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "eip is being") || strings.Contains(message, "operation conflict") || strings.Contains(message, "processing")
+}
+
 func IsCredentialError(err error) bool {
 	if err == nil {
 		return false

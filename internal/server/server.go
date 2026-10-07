@@ -1782,6 +1782,8 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 		releaseOld = truthy(value)
 	}
 	oldAllocationID, oldIP := a.EIPAllocationID, a.PublicIP
+	operationCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
 	var alloc, ip string
 	if bandwidthPackageID != "" {
 		sharedClient, ok := client.(cloud.SharedBandwidthEIPClient)
@@ -1789,34 +1791,40 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 			s.error(w, 400, "当前云账号不支持共享带宽配置")
 			return
 		}
-		alloc, ip, err = allocateEIP(rctx(), client, a.RegionID, replacementEIPBandwidth(a.InternetBandwidth, true))
+		alloc, ip, err = allocateEIP(operationCtx, client, a.RegionID, replacementEIPBandwidth(a.InternetBandwidth, true))
 		if err == nil {
-			err = sharedClient.AddEIPToCommonBandwidthPackage(rctx(), a.RegionID, bandwidthPackageID, alloc)
+			err = sharedClient.AddEIPToCommonBandwidthPackage(operationCtx, a.RegionID, bandwidthPackageID, alloc)
 			if err != nil {
-				_ = client.ReleaseEIP(rctx(), a.RegionID, alloc)
+				_ = releaseEIPWithRetry(operationCtx, client, a.RegionID, alloc)
 			}
 		}
 	} else {
-		alloc, ip, err = allocateEIP(rctx(), client, a.RegionID, replacementEIPBandwidth(a.InternetBandwidth, false))
+		alloc, ip, err = allocateEIP(operationCtx, client, a.RegionID, replacementEIPBandwidth(a.InternetBandwidth, false))
 	}
 	if err != nil {
 		s.error(w, 400, err.Error())
 		return
 	}
-	if err = client.UnassociateEIP(rctx(), a.RegionID, oldAllocationID); err != nil && !cloud.IsNotFound(err) {
-		_ = client.ReleaseEIP(rctx(), a.RegionID, alloc)
+	if err = unassociateEIPWithRetry(operationCtx, client, a.RegionID, oldAllocationID, a.InstanceID); err != nil && !cloud.IsNotFound(err) {
+		_ = releaseEIPWithRetry(operationCtx, client, a.RegionID, alloc)
 		s.error(w, 400, "旧 EIP 解绑失败: "+err.Error())
 		return
 	}
-	if err = client.AssociateEIP(rctx(), a.RegionID, alloc, a.InstanceID); err != nil {
-		// Restore the old association when possible, then release the unused replacement.
-		_ = client.AssociateEIP(rctx(), a.RegionID, oldAllocationID, a.InstanceID)
-		_ = client.ReleaseEIP(rctx(), a.RegionID, alloc)
-		s.error(w, 400, "新 EIP 绑定失败: "+err.Error())
+	if err = associateEIPWithRetry(operationCtx, client, a.RegionID, alloc, a.InstanceID); err != nil {
+		// The old EIP may already be detached when Alibaba Cloud reports a
+		// transient association conflict. Restore it before cleaning up the
+		// replacement so a failed change does not strand the instance.
+		restoreErr := associateEIPWithRetry(operationCtx, client, a.RegionID, oldAllocationID, a.InstanceID)
+		if restoreErr == nil {
+			_ = releaseEIPWithRetry(operationCtx, client, a.RegionID, alloc)
+			s.error(w, 400, "新 EIP 绑定失败，已恢复旧 EIP: "+err.Error())
+		} else {
+			s.error(w, 400, "新 EIP 绑定失败，旧 EIP 恢复也失败: "+err.Error()+"；恢复失败: "+restoreErr.Error())
+		}
 		return
 	}
 	if releaseOld {
-		if err = client.ReleaseEIP(rctx(), a.RegionID, oldAllocationID); err != nil && !cloud.IsNotFound(err) {
+		if err = releaseEIPWithRetry(operationCtx, client, a.RegionID, oldAllocationID); err != nil && !cloud.IsNotFound(err) {
 			s.Store.AddLog("warning", "旧 EIP 释放失败: "+err.Error())
 		}
 	}
@@ -1826,6 +1834,91 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 	}
 	s.dispatchEvent(rctx(), notify.Event{Title: "公网 IP 已更换", Summary: fmt.Sprintf("%s 的公网 IP 已更换", accountDisplay(*a)), AccountID: accountDisplay(*a), Text: fmt.Sprintf("【ECS 控制台】公网 IP 已更换\n实例: %s\n旧 IP: %s\n新 IP: %s\n区域: %s", accountDisplay(*a), oldIP, ip, a.RegionID), Fields: map[string]string{"old_ip": oldIP, "new_ip": ip, "instance_id": a.InstanceID}})
 	s.json(w, 200, map[string]any{"success": true, "message": "公网 IP 已更换", "data": map[string]any{"publicIp": ip, "publicIpMode": "eip", "eipAllocationId": alloc, "eipAddress": ip, "eipManaged": true, "internetMaxBandwidthOut": a.InternetBandwidth}})
+}
+
+func associateEIPWithRetry(ctx context.Context, client cloud.Client, region, allocationID, instanceID string) error {
+	const attempts = 8
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(1500 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				if lastErr != nil {
+					return lastErr
+				}
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		lastErr = client.AssociateEIP(ctx, region, allocationID, instanceID)
+		if lastErr == nil || !cloud.IsEIPAssociationConflict(lastErr) {
+			return lastErr
+		}
+	}
+	return lastErr
+}
+
+func unassociateEIPWithRetry(ctx context.Context, client cloud.Client, region, allocationID, instanceID string) error {
+	const attempts = 8
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(1500 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				if lastErr != nil {
+					return lastErr
+				}
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		lastErr = client.UnassociateEIP(ctx, region, allocationID)
+		if lastErr == nil || cloud.IsNotFound(lastErr) {
+			return lastErr
+		}
+		if !cloud.IsEIPOperationPending(lastErr) {
+			return lastErr
+		}
+		// A previous request may have succeeded while its response was delayed.
+		// If the live binding no longer points at the old EIP, the desired
+		// detached state is already true and the operation can continue.
+		if networkClient, ok := client.(cloud.InstancePublicNetworkClient); ok {
+			if networks, lookupErr := networkClient.DescribeInstancePublicNetworks(ctx, region, []string{instanceID}); lookupErr == nil {
+				if network, exists := networks[instanceID]; !exists || network.AllocationID != allocationID {
+					return nil
+				}
+			}
+		}
+	}
+	return lastErr
+}
+
+func releaseEIPWithRetry(ctx context.Context, client cloud.Client, region, allocationID string) error {
+	const attempts = 5
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				if lastErr != nil {
+					return lastErr
+				}
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		lastErr = client.ReleaseEIP(ctx, region, allocationID)
+		if lastErr == nil || !cloud.IsEIPOperationPending(lastErr) {
+			return lastErr
+		}
+	}
+	return lastErr
 }
 
 func (s *Server) sharedBandwidthPackages(w http.ResponseWriter, data map[string]any) {
