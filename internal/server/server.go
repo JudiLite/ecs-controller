@@ -1789,7 +1789,7 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 			s.error(w, 400, "当前云账号不支持共享带宽配置")
 			return
 		}
-		alloc, ip, err = allocateEIP(rctx(), client, a.RegionID, a.InternetBandwidth)
+		alloc, ip, err = allocateEIP(rctx(), client, a.RegionID, replacementEIPBandwidth(a.InternetBandwidth, true))
 		if err == nil {
 			err = sharedClient.AddEIPToCommonBandwidthPackage(rctx(), a.RegionID, bandwidthPackageID, alloc)
 			if err != nil {
@@ -1797,7 +1797,7 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 			}
 		}
 	} else {
-		alloc, ip, err = allocateEIP(rctx(), client, a.RegionID, a.InternetBandwidth)
+		alloc, ip, err = allocateEIP(rctx(), client, a.RegionID, replacementEIPBandwidth(a.InternetBandwidth, false))
 	}
 	if err != nil {
 		s.error(w, 400, err.Error())
@@ -1858,6 +1858,25 @@ func allocateEIP(ctx context.Context, client cloud.Client, region string, bandwi
 		return bandwidthClient.AllocateEIPWithBandwidth(ctx, region, bandwidth)
 	}
 	return client.AllocateEIP(ctx, region)
+}
+
+const maxPayByTrafficEIPBandwidth = 200
+
+func replacementEIPBandwidth(requested int, shared bool) int {
+	// The shared package controls the usable bandwidth after the new EIP is
+	// attached, so allocate it with a small valid baseline. A stale local
+	// record can contain a shared-package peak such as 999 Mbps, which is not
+	// a valid PayByTraffic EIP allocation bandwidth in this API.
+	if shared {
+		return 5
+	}
+	if requested < 1 {
+		return 5
+	}
+	if requested > maxPayByTrafficEIPBandwidth {
+		return maxPayByTrafficEIPBandwidth
+	}
+	return requested
 }
 
 func cmsTrafficErrorMessage(err error) string {

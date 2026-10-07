@@ -772,15 +772,29 @@ func (s *Service) AllocateEIPWithBandwidthPackage(ctx context.Context, region st
 
 func (s *Service) DescribeCommonBandwidthPackages(ctx context.Context, region string) ([]map[string]any, error) {
 	result, err := s.EIP.Call(ctx, "DescribeCommonBandwidthPackages", map[string]string{
-		"RegionId":   region,
-		"PageNumber": "1",
-		"PageSize":   "100",
+		"RegionId":               region,
+		"PageNumber":             "1",
+		"PageSize":               "50",
+		"IncludeReservationData": "true",
 	})
 	if err != nil {
 		return nil, err
 	}
 	packages := make([]map[string]any, 0)
-	for _, item := range mapsAt(result, "CommonBandwidthPackages.CommonBandwidthPackage") {
+	// Alibaba Cloud currently returns CommonBandwidthPackages as an array;
+	// older responses wrapped it in CommonBandwidthPackage. Accept both
+	// shapes because the API changed without changing the operation name.
+	items := make([]map[string]any, 0)
+	if raw, ok := result["CommonBandwidthPackages"].([]any); ok {
+		items = anyMaps(raw)
+	}
+	if len(items) == 0 {
+		items = mapsAt(result, "CommonBandwidthPackages.CommonBandwidthPackage")
+	}
+	if len(items) == 0 {
+		items = collectMaps(result, "CommonBandwidthPackage")
+	}
+	for _, item := range items {
 		status := firstString(item, "Status", "status")
 		statusKey := strings.ToLower(status)
 		// A package can be Available or already attached to another EIP while
@@ -795,10 +809,12 @@ func (s *Service) DescribeCommonBandwidthPackages(ctx context.Context, region st
 			continue
 		}
 		packages = append(packages, map[string]any{
-			"id":        id,
-			"name":      firstString(item, "Name", "name"),
-			"bandwidth": firstInt(item, "Bandwidth", "bandwidth", "InternetMaxBandwidthOut"),
-			"status":    status,
+			"id":             id,
+			"name":           firstString(item, "Name", "name", "CommonBandwidthPackageName"),
+			"bandwidth":      firstInt(item, "Bandwidth", "bandwidth", "InternetMaxBandwidthOut"),
+			"status":         status,
+			"businessStatus": firstString(item, "BusinessStatus", "businessStatus"),
+			"lineType":       firstString(item, "ISP", "Isp", "LineType", "lineType"),
 		})
 	}
 	return packages, nil

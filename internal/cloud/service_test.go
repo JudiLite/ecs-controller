@@ -125,6 +125,31 @@ func TestServicePreflightAndEIPRequestSemantics(t *testing.T) {
 	}
 }
 
+func TestDescribeCommonBandwidthPackagesKeepsActivePackages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("Action") != "DescribeCommonBandwidthPackages" || r.URL.Query().Get("PageSize") != "50" {
+			t.Fatalf("unexpected shared bandwidth request: %v", r.URL.Query())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"CommonBandwidthPackages": []any{
+				map[string]any{"BandwidthPackageId": "cbwp-available", "CommonBandwidthPackageName": "可用带宽", "Bandwidth": 200, "Status": "Available", "ISP": "BGP"},
+				map[string]any{"BandwidthPackageId": "cbwp-inuse", "CommonBandwidthPackageName": "使用中带宽", "Bandwidth": 500, "Status": "InUse", "ISP": "BGP_PRO"},
+				map[string]any{"BandwidthPackageId": "cbwp-deleted", "Name": "已删除", "Bandwidth": 100, "Status": "Deleted"},
+			},
+		})
+	}))
+	defer server.Close()
+	service := &Service{EIP: &RPCClient{HTTPClient: server.Client(), Endpoint: server.URL, Version: "2016-04-28", Product: "Vpc", AccessKey: "ak", Secret: "sk"}}
+	packages, err := service.DescribeCommonBandwidthPackages(context.Background(), "cn-hongkong")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packages) != 2 || packages[1]["id"] != "cbwp-inuse" || packages[1]["lineType"] != "BGP_PRO" {
+		t.Fatalf("unexpected shared bandwidth packages: %#v", packages)
+	}
+}
+
 func TestEstimateCreatePriceUsesFinalConfigurationAndParsesDetails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()

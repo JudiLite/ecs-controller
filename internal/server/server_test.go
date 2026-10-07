@@ -1198,6 +1198,18 @@ func TestBillingDatesIncludesPreviousMonth(t *testing.T) {
 	}
 }
 
+func TestReplacementEIPBandwidthClampsInvalidPeakValues(t *testing.T) {
+	if got := replacementEIPBandwidth(999, false); got != 200 {
+		t.Fatalf("unshared replacement bandwidth = %d, want 200", got)
+	}
+	if got := replacementEIPBandwidth(999, true); got != 5 {
+		t.Fatalf("shared replacement bandwidth = %d, want 5", got)
+	}
+	if got := replacementEIPBandwidth(0, false); got != 5 {
+		t.Fatalf("zero replacement bandwidth = %d, want 5", got)
+	}
+}
+
 func TestEnrichBillingDetailsAddsCurrentResourceWithoutChangingBillValues(t *testing.T) {
 	items := []cloud.BillingDetail{{
 		InstanceID: "eip-1",

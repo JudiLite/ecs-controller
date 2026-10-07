@@ -8085,6 +8085,7 @@
                         if (!value) return;
                         let label = item.name || value;
                         if (item.bandwidth) label += ' · ' + item.bandwidth + ' Mbps';
+                        if (item.status && item.status.toLowerCase() !== 'available') label += ' · ' + item.status;
                         options.push({ value, label });
                     });
                     return options;
