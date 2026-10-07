@@ -149,8 +149,17 @@ type APIError struct {
 }
 
 func IsNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
 	var apiErr *APIError
-	return errors.As(err, &apiErr) && (strings.Contains(strings.ToLower(apiErr.Code), "notfound") || strings.Contains(strings.ToLower(apiErr.Code), "not_found"))
+	if errors.As(err, &apiErr) && (strings.Contains(strings.ToLower(apiErr.Code), "notfound") || strings.Contains(strings.ToLower(apiErr.Code), "not_found")) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "invalidinstanceid.notfound") ||
+		strings.Contains(message, "specified instanceid does not exist") ||
+		strings.Contains(message, "instanceid does not exist")
 }
 
 func IsCredentialError(err error) bool {

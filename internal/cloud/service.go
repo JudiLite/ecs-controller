@@ -245,6 +245,11 @@ type BandwidthEIPClient interface {
 	AllocateEIPWithBandwidth(context.Context, string, int) (string, string, error)
 }
 
+type SharedBandwidthEIPClient interface {
+	DescribeCommonBandwidthPackages(context.Context, string) ([]map[string]any, error)
+	AddEIPToCommonBandwidthPackage(context.Context, string, string, string) error
+}
+
 type Service struct{ ECS, VPC, EIP, CMS, CDT, BSS *RPCClient }
 
 func NewRPCService(accessKey, secret, region string) *Service {
@@ -743,11 +748,61 @@ func (s *Service) AllocateEIP(ctx context.Context, region string) (string, strin
 }
 
 func (s *Service) AllocateEIPWithBandwidth(ctx context.Context, region string, bandwidth int) (string, string, error) {
+	return s.AllocateEIPWithBandwidthPackage(ctx, region, bandwidth, "")
+}
+
+func (s *Service) AllocateEIPWithBandwidthPackage(ctx context.Context, region string, bandwidth int, bandwidthPackageID string) (string, string, error) {
 	if bandwidth < 1 {
 		bandwidth = 1
 	}
-	result, err := s.EIP.Call(ctx, "AllocateEipAddress", map[string]string{"RegionId": region, "InternetChargeType": "PayByTraffic", "Bandwidth": strconv.Itoa(bandwidth)})
-	return stringValue(result["AllocationId"]), stringValue(result["EipAddress"]), err
+	params := map[string]string{"RegionId": region, "InternetChargeType": "PayByTraffic", "Bandwidth": strconv.Itoa(bandwidth)}
+	result, err := s.EIP.Call(ctx, "AllocateEipAddress", params)
+	if err != nil {
+		return "", "", err
+	}
+	allocationID, address := stringValue(result["AllocationId"]), stringValue(result["EipAddress"])
+	if bandwidthPackageID != "" {
+		if err := s.AddEIPToCommonBandwidthPackage(ctx, region, bandwidthPackageID, allocationID); err != nil {
+			_ = s.ReleaseEIP(ctx, region, allocationID)
+			return "", "", err
+		}
+	}
+	return allocationID, address, nil
+}
+
+func (s *Service) DescribeCommonBandwidthPackages(ctx context.Context, region string) ([]map[string]any, error) {
+	result, err := s.EIP.Call(ctx, "DescribeCommonBandwidthPackages", map[string]string{
+		"RegionId":   region,
+		"PageNumber": "1",
+		"PageSize":   "100",
+	})
+	if err != nil {
+		return nil, err
+	}
+	packages := make([]map[string]any, 0)
+	for _, item := range mapsAt(result, "CommonBandwidthPackages.CommonBandwidthPackage") {
+		status := strings.ToLower(stringValue(item["Status"]))
+		if status != "" && status != "available" {
+			continue
+		}
+		packages = append(packages, map[string]any{
+			"id":        stringValue(item["BandwidthPackageId"]),
+			"name":      stringValue(item["Name"]),
+			"bandwidth": intValue(item["Bandwidth"]),
+			"status":    stringValue(item["Status"]),
+		})
+	}
+	return packages, nil
+}
+
+func (s *Service) AddEIPToCommonBandwidthPackage(ctx context.Context, region, packageID, allocationID string) error {
+	_, err := s.EIP.Call(ctx, "AddCommonBandwidthPackageIp", map[string]string{
+		"RegionId":           region,
+		"BandwidthPackageId": packageID,
+		"IpInstanceId":       allocationID,
+		"IpType":             "EIP",
+	})
+	return err
 }
 func (s *Service) AssociateEIP(ctx context.Context, region, allocationID, instanceID string) error {
 	_, err := s.EIP.Call(ctx, "AssociateEipAddress", map[string]string{"RegionId": region, "AllocationId": allocationID, "InstanceId": instanceID, "InstanceType": "EcsInstance"})

@@ -17,7 +17,7 @@ import (
 )
 
 type fakeCloud struct {
-	runErr, assocErr, startErr, stopErr                             error
+	runErr, assocErr, startErr, stopErr, deleteErr                  error
 	deleted, allocated, associated, unassociated, released, cleaned int
 	describeStatus                                                  string
 	cdtTraffic                                                      float64
@@ -90,7 +90,10 @@ func (f *fakeCloud) StopInstance(_ context.Context, _, _, mode string) error {
 	f.stopMode = mode
 	return f.stopErr
 }
-func (f *fakeCloud) DeleteInstance(context.Context, string, string) error { f.deleted++; return nil }
+func (f *fakeCloud) DeleteInstance(context.Context, string, string) error {
+	f.deleted++
+	return f.deleteErr
+}
 func (f *fakeCloud) RunInstances(_ context.Context, request cloud.RunRequest) (cloud.RunResult, error) {
 	f.runRequest = request
 	if f.runErr != nil {

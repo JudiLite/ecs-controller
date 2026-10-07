@@ -6286,6 +6286,37 @@
             </div>
         </div>
 
+        <div v-if="showReplaceIpModal" class="account-modal-overlay">
+            <div class="glass-panel account-modal">
+                <div class="section-head">
+                    <div>
+                        <p class="subtle-label">实例管理</p>
+                        <h2 class="section-title">更换公网 IP</h2>
+                        <p class="mt-1 text-sm text-[var(--muted)]">{{ replaceIpDraft.label }}</p>
+                    </div>
+                    <button @click="closeReplaceIpModal" class="ghost-button compact-button">关闭</button>
+                </div>
+                <div class="account-modal__body">
+                    <label class="switch-row flex items-center justify-between rounded-[16px] border border-[var(--line)] px-4 py-3 text-sm">
+                        <span><span class="block font-semibold">释放旧 EIP</span><span class="mt-1 block text-xs text-[var(--muted)]">取消勾选后，旧 EIP 会解绑但保留在阿里云账号中。</span></span>
+                        <span class="switch-control"><input type="checkbox" v-model="replaceIpDraft.releaseOldEIP"><span class="switch-slider"></span></span>
+                    </label>
+                    <div class="mt-4">
+                        <label class="field-label">共享带宽</label>
+                        <select v-model="replaceIpDraft.bandwidthPackageId" class="glass-input">
+                            <option value="">不加入共享带宽</option>
+                            <option v-for="item in replaceIpDraft.bandwidthPackages" :key="item.id" :value="item.id">{{ item.name || item.id }}{{ item.bandwidth ? ` · ${item.bandwidth} Mbps` : '' }}</option>
+                        </select>
+                        <p class="mt-2 text-xs leading-5 text-[var(--muted)]">新 EIP 将按当前实例带宽创建；选择共享带宽后，新 EIP 会直接加入该共享带宽。</p>
+                    </div>
+                </div>
+                <div class="top-action-row">
+                    <button @click="closeReplaceIpModal" class="ghost-button">取消</button>
+                    <button @click="submitReplaceIp" class="solid-button" :disabled="replaceIpDraft.loading">{{ replaceIpDraft.loading ? '更换中...' : '确认更换' }}</button>
+                </div>
+            </div>
+        </div>
+
         <div v-if="showAccountModal" class="account-modal-overlay">
             <div class="glass-panel account-modal">
                 <div class="section-head">
@@ -7496,6 +7527,8 @@
                 const editingRotationGroupIndex = ref(-1);
                 const rotationGroupDraft = ref(createDefaultRotationGroup());
                 const showInstanceScheduleModal = ref(false);
+                const showReplaceIpModal = ref(false);
+                const replaceIpDraft = ref({ accountId: 0, label: '', regionId: '', releaseOldEIP: true, bandwidthPackageId: '', bandwidthPackages: [], loading: false });
                 const savingInstanceSchedule = ref(false);
                 const instanceScheduleDraft = ref({
                     accountId: 0,
@@ -9034,6 +9067,45 @@
                     instanceScheduleDraft.value = { accountId: 0, label: '', enabled: false, startTime: '', stopTime: '', stoppedMode: 'KeepCharging' };
                 };
 
+                const closeReplaceIpModal = () => {
+                    showReplaceIpModal.value = false;
+                    replaceIpDraft.value = { accountId: 0, label: '', regionId: '', releaseOldEIP: true, bandwidthPackageId: '', bandwidthPackages: [], loading: false };
+                };
+
+                const openReplaceIpModal = async (instance) => {
+                    const accountId = Number(instance.id || instance.accountId || 0);
+                    replaceIpDraft.value = { accountId, label: instance.remark || instance.instanceName || instance.instanceId || '未命名实例', regionId: instance.regionId || instance.region || '', releaseOldEIP: true, bandwidthPackageId: '', bandwidthPackages: [], loading: false };
+                    showReplaceIpModal.value = true;
+                    try {
+                        const res = await fetch('index.php?action=get_shared_bandwidth_packages', { method: 'POST', body: JSON.stringify({ accountId, regionId: replaceIpDraft.value.regionId }) });
+                        const data = await res.json();
+                        if (res.ok && data.success) replaceIpDraft.value.bandwidthPackages = Array.isArray(data.data) ? data.data : [];
+                    } catch (error) {
+                        console.error('Load shared bandwidth packages failed', error);
+                    }
+                };
+
+                const submitReplaceIp = async () => {
+                    const draft = replaceIpDraft.value;
+                    draft.loading = true;
+                    try {
+                        const res = await fetch('index.php?action=replace_instance_ip', { method: 'POST', body: JSON.stringify({ accountId: draft.accountId, releaseOldEIP: draft.releaseOldEIP, bandwidthPackageId: draft.bandwidthPackageId }) });
+                        const data = await res.json();
+                        if (!res.ok || !data.success) {
+                            openAlert(data.message || '公网 IP 更换失败', 'error');
+                            return;
+                        }
+                        closeReplaceIpModal();
+                        openAlert(`公网 IP 已更换为 ${(data.data || {}).publicIp || '-'}`, 'success');
+                        await reloadInstanceViews({ silent: true });
+                    } catch (error) {
+                        console.error('Replace instance IP failed', error);
+                        openAlert('公网 IP 更换请求失败', 'error');
+                    } finally {
+                        draft.loading = false;
+                    }
+                };
+
                 const saveInstanceSchedule = async () => {
                     const draft = instanceScheduleDraft.value;
                     const validClock = (value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value || '');
@@ -9122,7 +9194,7 @@
                 };
 
                 const canReplaceIp = (inst) => {
-                    return isAdmin.value && inst && !inst.operationLocked && inst.instanceStatus !== 'Releasing' && inst.publicIpMode === 'eip' && !!inst.eipManaged;
+                    return isAdmin.value && inst && !inst.operationLocked && inst.instanceStatus !== 'Releasing' && inst.publicIpMode === 'eip' && !!inst.eipAllocationId;
                 };
 
                 const viewInitialCredential = async (accountId) => {
@@ -9179,41 +9251,8 @@
                 };
 
                 const replaceInstanceIp = async (accountId) => {
-                    const confirmed = await askConfirm('确定更换这台实例的公网 IP 吗？旧 EIP 会被释放且不可恢复，DDNS 会自动同步到新 IP。', {
-                        title: '更换公网 IP',
-                        confirmLabel: '确认更换'
-                    });
-                    if (!confirmed) return;
-
-                    refreshingInstanceIds.value = [...new Set([...refreshingInstanceIds.value, accountId])];
-                    try {
-                        const res = await fetch('index.php?action=replace_instance_ip', {
-                            method: 'POST',
-                            body: JSON.stringify({ accountId })
-                        });
-                        const data = await res.json();
-                        if (!res.ok || !data.success) {
-                            openAlert(data.message || '公网 IP 更换失败', 'error');
-                            return;
-                        }
-
-                        const next = data.data || {};
-                        patchInstanceLists(accountId, {
-                            publicIp: next.publicIp || '',
-                            publicIpMode: 'eip',
-                            eipAllocationId: next.eipAllocationId || '',
-                            eipAddress: next.eipAddress || next.publicIp || '',
-                            eipManaged: true,
-                            internetMaxBandwidthOut: next.internetMaxBandwidthOut || 0
-                        });
-                        openAlert(`公网 IP 已更换为 ${next.publicIp || '-'}`, 'success');
-                        await reloadInstanceViews({ silent: true });
-                    } catch (error) {
-                        console.error('Replace instance IP failed', error);
-                        openAlert('公网 IP 更换请求失败', 'error');
-                    } finally {
-                        refreshingInstanceIds.value = refreshingInstanceIds.value.filter((itemId) => Number(itemId) !== Number(accountId));
-                    }
+                    const instance = allInstances.value.find((item) => Number(item.id || item.accountId) === Number(accountId));
+                    if (instance) await openReplaceIpModal(instance);
                 };
 
                 const deleteInstance = async (accountId) => {
@@ -10506,6 +10545,8 @@
                     showAccountModal,
                     showRotationGroupModal,
                     showInstanceScheduleModal,
+                    showReplaceIpModal,
+                    replaceIpDraft,
                     showLoginModal,
                     systemLogs,
 					auditFilters,
@@ -10557,6 +10598,9 @@
                     rotationInstanceScheduleLabel,
                     openInstanceScheduleModal,
                     closeInstanceScheduleModal,
+                    openReplaceIpModal,
+                    closeReplaceIpModal,
+                    submitReplaceIp,
                     saveInstanceSchedule,
                     openBillingDay,
                     openBillingDetails,

@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -71,5 +72,12 @@ func TestRPCDoesNotRetryMutatingActions(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("mutating RPC was retried %d times", calls)
+	}
+}
+
+func TestIsNotFoundRecognizesWrappedAlibabaMessage(t *testing.T) {
+	err := fmt.Errorf("delete instance failed: aliyun InvalidInstanceId.NotFound: The specified InstanceId does not exist")
+	if !IsNotFound(err) {
+		t.Fatal("wrapped Alibaba not-found error was not recognized")
 	}
 }

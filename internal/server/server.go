@@ -378,6 +378,8 @@ func (s *Server) authenticatedAction(w http.ResponseWriter, r *http.Request, act
 		s.deleteInstance(w, data)
 	case "replace_instance_ip":
 		s.replaceIP(w, data)
+	case "get_shared_bandwidth_packages":
+		s.sharedBandwidthPackages(w, data)
 	case "refresh_account", "sync_account_group", "restore_schedule_block":
 		if action == "refresh_account" {
 			s.refreshAccount(w, data)
@@ -1770,12 +1772,33 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 		s.cloudUnavailable(w)
 		return
 	}
-	if a.PublicIPMode != "eip" || !a.EIPManaged || a.EIPAllocationID == "" {
-		s.error(w, 400, "当前实例不是系统托管 EIP，无法更换公网 IP")
+	if a.PublicIPMode != "eip" || a.EIPAllocationID == "" {
+		s.error(w, 400, "当前实例没有可识别的 EIP，无法更换公网 IP")
 		return
 	}
+	bandwidthPackageID := stringValue(data["bandwidthPackageId"])
+	releaseOld := true
+	if value, exists := data["releaseOldEIP"]; exists {
+		releaseOld = truthy(value)
+	}
 	oldAllocationID, oldIP := a.EIPAllocationID, a.PublicIP
-	alloc, ip, err := allocateEIP(rctx(), client, a.RegionID, a.InternetBandwidth)
+	var alloc, ip string
+	if bandwidthPackageID != "" {
+		sharedClient, ok := client.(cloud.SharedBandwidthEIPClient)
+		if !ok {
+			s.error(w, 400, "当前云账号不支持共享带宽配置")
+			return
+		}
+		alloc, ip, err = allocateEIP(rctx(), client, a.RegionID, a.InternetBandwidth)
+		if err == nil {
+			err = sharedClient.AddEIPToCommonBandwidthPackage(rctx(), a.RegionID, bandwidthPackageID, alloc)
+			if err != nil {
+				_ = client.ReleaseEIP(rctx(), a.RegionID, alloc)
+			}
+		}
+	} else {
+		alloc, ip, err = allocateEIP(rctx(), client, a.RegionID, a.InternetBandwidth)
+	}
 	if err != nil {
 		s.error(w, 400, err.Error())
 		return
@@ -1792,15 +1815,42 @@ func (s *Server) replaceIP(w http.ResponseWriter, data map[string]any) {
 		s.error(w, 400, "新 EIP 绑定失败: "+err.Error())
 		return
 	}
-	if err = client.ReleaseEIP(rctx(), a.RegionID, oldAllocationID); err != nil && !cloud.IsNotFound(err) {
-		s.Store.AddLog("warning", "旧 EIP 释放失败: "+err.Error())
+	if releaseOld {
+		if err = client.ReleaseEIP(rctx(), a.RegionID, oldAllocationID); err != nil && !cloud.IsNotFound(err) {
+			s.Store.AddLog("warning", "旧 EIP 释放失败: "+err.Error())
+		}
 	}
 	if err := s.Store.UpdateNetwork(id, map[string]any{"eip_allocation_id": alloc, "eip_address": ip, "public_ip": ip, "public_ip_mode": "eip", "eip_managed": true}); err != nil {
 		s.error(w, 500, "新 EIP 已绑定，但本地状态保存失败: "+err.Error())
 		return
 	}
 	s.dispatchEvent(rctx(), notify.Event{Title: "公网 IP 已更换", Summary: fmt.Sprintf("%s 的公网 IP 已更换", accountDisplay(*a)), AccountID: accountDisplay(*a), Text: fmt.Sprintf("【ECS 控制台】公网 IP 已更换\n实例: %s\n旧 IP: %s\n新 IP: %s\n区域: %s", accountDisplay(*a), oldIP, ip, a.RegionID), Fields: map[string]string{"old_ip": oldIP, "new_ip": ip, "instance_id": a.InstanceID}})
-	s.json(w, 200, map[string]any{"success": true, "message": "公网 IP 已更换", "data": map[string]any{"publicIp": ip, "publicIpMode": "eip", "eipAllocationId": alloc, "eipAddress": ip, "internetMaxBandwidthOut": a.InternetBandwidth}})
+	s.json(w, 200, map[string]any{"success": true, "message": "公网 IP 已更换", "data": map[string]any{"publicIp": ip, "publicIpMode": "eip", "eipAllocationId": alloc, "eipAddress": ip, "eipManaged": true, "internetMaxBandwidthOut": a.InternetBandwidth}})
+}
+
+func (s *Server) sharedBandwidthPackages(w http.ResponseWriter, data map[string]any) {
+	region := stringValue(data["regionId"])
+	if region == "" {
+		s.error(w, 400, "缺少地域参数")
+		return
+	}
+	account, err := s.Store.Account(int64(number(data["accountId"], 0)), false)
+	if err != nil {
+		s.error(w, 404, "账号不存在")
+		return
+	}
+	client := s.cloudClient(*account)
+	sharedClient, ok := client.(cloud.SharedBandwidthEIPClient)
+	if !ok {
+		s.error(w, 400, "当前云账号不支持共享带宽查询")
+		return
+	}
+	packages, err := sharedClient.DescribeCommonBandwidthPackages(rctx(), region)
+	if err != nil {
+		s.error(w, 400, "共享带宽查询失败: "+err.Error())
+		return
+	}
+	s.json(w, 200, map[string]any{"success": true, "data": packages})
 }
 
 func allocateEIP(ctx context.Context, client cloud.Client, region string, bandwidth int) (string, string, error) {
