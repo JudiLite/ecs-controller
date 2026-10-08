@@ -1032,6 +1032,15 @@ func TestTelegramInstanceDisplayPrefersInstanceID(t *testing.T) {
 	}
 }
 
+func TestTelegramInstanceAccountLabel(t *testing.T) {
+	if got := instanceAccountLabel(app.Account{Remark: "香港账号", AccessKeyID: "LTAI1234567890"}); got != "香港账号" {
+		t.Fatalf("Telegram account label = %q, want remark", got)
+	}
+	if got := instanceAccountLabel(app.Account{AccessKeyID: "LTAI1234567890"}); got != "LTAI...7890" {
+		t.Fatalf("Telegram account fallback = %q, want masked access key", got)
+	}
+}
+
 func TestTelegramConflictError(t *testing.T) {
 	if !telegramConflictError(errors.New("Telegram: Conflict: terminated by other getUpdates request")) {
 		t.Fatal("Telegram getUpdates conflict was not detected")

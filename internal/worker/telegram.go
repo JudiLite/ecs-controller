@@ -474,7 +474,7 @@ func (w *Worker) telegramInstances(page int) string {
 	}
 	lines = append(lines, "", fmt.Sprintf("选择实例  ·  第 %d/%d 页", page, total))
 	for _, account := range accounts[(page-1)*pageSize : minInt(page*pageSize, len(accounts))] {
-		lines = append(lines, "", statusIcon(account.InstanceStatus)+" "+instanceDisplayName(account), "📍 "+firstNonEmpty(account.RegionID, "未知区域"), "📦 "+formatTraffic(account.TrafficUsed, account.MaxTraffic), "🌐 "+firstNonEmpty(account.PublicIP, "暂无公网 IP"))
+		lines = append(lines, "", statusIcon(account.InstanceStatus)+" "+instanceDisplayName(account), "👤 所属账号："+instanceAccountLabel(account), "📍 "+firstNonEmpty(account.RegionID, "未知区域"), "📦 "+formatTraffic(account.TrafficUsed, account.MaxTraffic), "🌐 "+firstNonEmpty(account.PublicIP, "暂无公网 IP"))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -484,7 +484,7 @@ func (w *Worker) telegramInstance(id int64) string {
 	if err != nil {
 		return "🖥️ 实例不存在或已被清理。"
 	}
-	return fmt.Sprintf("🖥️ 实例详情\n\n%s\n%s %s  ·  %s\n\n🌐 公网 IP：%s\n⚙️ 规格：%s\n📦 实例流量：%s\n🆔 实例 ID：%s\n🕒 最后同步：%s", instanceDisplayName(*a), statusIcon(a.InstanceStatus), statusLabel(a.InstanceStatus), firstNonEmpty(a.RegionID, "未知区域"), firstNonEmpty(a.PublicIP, "暂无"), firstNonEmpty(a.InstanceType, "未知"), formatTraffic(a.TrafficUsed, a.MaxTraffic), firstNonEmpty(a.InstanceID, "未知"), telegramUpdatedAt(a.UpdatedAt))
+	return fmt.Sprintf("🖥️ 实例详情\n\n%s\n%s %s  ·  %s\n👤 所属账号：%s\n\n🌐 公网 IP：%s\n⚙️ 规格：%s\n📦 实例流量：%s\n🆔 实例 ID：%s\n🕒 最后同步：%s", instanceDisplayName(*a), statusIcon(a.InstanceStatus), statusLabel(a.InstanceStatus), firstNonEmpty(a.RegionID, "未知区域"), instanceAccountLabel(*a), firstNonEmpty(a.PublicIP, "暂无"), firstNonEmpty(a.InstanceType, "未知"), formatTraffic(a.TrafficUsed, a.MaxTraffic), firstNonEmpty(a.InstanceID, "未知"), telegramUpdatedAt(a.UpdatedAt))
 }
 
 func (w *Worker) telegramReplaceOptions(ctx context.Context, id int64, page int) (string, map[string]any) {
@@ -974,6 +974,18 @@ func instanceStatusCounts(accounts []app.Account) (running, processing, stopped,
 }
 func instanceDisplayName(account app.Account) string {
 	return firstNonEmpty(account.InstanceID, account.Remark, account.InstanceName, "未知实例")
+}
+func instanceAccountLabel(account app.Account) string {
+	if label := strings.TrimSpace(account.Remark); label != "" {
+		return label
+	}
+	if key := strings.TrimSpace(account.AccessKeyID); key != "" {
+		if len(key) <= 8 {
+			return key
+		}
+		return key[:4] + "..." + key[len(key)-4:]
+	}
+	return firstNonEmpty(account.GroupKey, "未命名账号")
 }
 func formatTraffic(used, max float64) string {
 	if max > 0 {
