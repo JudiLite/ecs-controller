@@ -1,5 +1,7 @@
 # ECS 控制台
 
+当前稳定版本：`v1.1.0`
+
 一个简单的阿里云 ECS 管理面板，可以查看实例状态和流量，并在流量达到阈值时自动关机，避免产生额外费用。支持精选公共镜像与自定义镜像、多实例轮转与 DDNS 自动切换、Telegram Bot 双向交互控制及费用分析。
 
 > 阿里云流量数据可能存在延迟，自动关机不能保证绝对不会产生费用。
@@ -100,6 +102,8 @@ sudo ecs logs
 
 本项目会通过 GitHub Actions 在 `main` 分支更新后自动构建并发布 Linux AMD64、Linux ARM64、Windows AMD64 和 Windows ARM64 安装包。部署脚本默认从本项目的 [GitHub Releases](https://github.com/JudiLite/ecs-controller/releases) 下载，不依赖上游仓库的 Release。
 
+发布版本采用 GitHub Release 管理。稳定版本保留经过完整验证的里程碑版本；日常小修复会合并到下一次正式版本中，避免更新列表出现大量碎片化版本。
+
 ### 卸载服务
 
 在服务器上运行：
@@ -142,12 +146,12 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
 
 - **实例管理与自定义镜像**：`AliyunECSFullAccess`（ECS 完整管理权限，包含实例查询与启停、镜像列表查询 `DescribeImages`、系统盘及规格预检等）
 - **实例流量**：`AliyunCloudMonitorReadOnlyAccess`（CloudMonitor 只读权限，用于获取实例网络流出量）
-- **账号流量**：`AliyunCDTFullAccess`（Cloud Data Transfer 完整权限，用于获取公网流出流量）
-- **创建实例与网络管理**：`AliyunVPCFullAccess`（VPC 完整权限）和 `AliyunECSFullAccess`（ECS 完整权限，用于创建 VPC、交换机、安全组，申请、绑定及释放 EIP）
+- **账号流量**：`AliyunCDTReadOnlyAccess`（CDT 只读权限，用于获取公网流出流量）
+- **创建实例与网络管理**：`AliyunVPCFullAccess`（VPC 完整权限）和 `AliyunECSFullAccess`（ECS 完整权限，用于创建 VPC、交换机、安全组和实例）
+- **公网 IP 与共享带宽**：`AliyunEIPFullAccess` 和 `AliyunCommonBandwidthPackageFullAccess`（用于申请、绑定、解绑、移出共享带宽及释放 EIP）
 - **消费情况与费用分析**：`AliyunBSSReadOnlyAccess`（BSS 账单服务只读权限，用于查询账户余额、账单明细和分项费用）
-- **阿里云资源元数据服务角色**：`AliyunServiceRolePolicyForResourceMetaCenter`（由阿里云相关服务创建或使用服务关联角色时可能需要）
 
-如果出现“CloudMonitor 不可用”或“CDT 不可用”，通常是对应的 RAM 权限没有开启。只查看和管理已有实例时，不需要开通创建实例、EIP 和账单权限。
+如果出现“CloudMonitor 不可用”或“CDT 不可用”，通常是对应的 RAM 权限没有开启。只查看和管理已有实例时，可以不授予创建实例和 VPC 的权限；使用更换公网 IP 或共享带宽时，需要保留 EIP 和共享带宽权限。阿里云 DNS 仅在选择 AliDNS 作为 DDNS 服务商时需要额外授权。
 
 ## 主要功能
 
@@ -185,6 +189,8 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
   - 发送 `/traffic` 查看全账号流量总览与实例流量；
   - 发送 `/instances` 查看实例列表与分页详情；
   - 通过内联按钮交互进行刷新数据、远程开机、关机，以及带倒计时二次确认的安全释放；
+  - 在实例详情中使用真实 ECS 实例 ID 识别实例，避免与自定义账号备注混淆；
+  - 支持通过 Telegram 更换托管 EIP，选择是否加入共享带宽，并在更换后自动清理旧 EIP；
   - 支持配置 SOCKS5 / HTTP 代理，保障网络连通。
 - **每日定时日报摘要**：支持每天在指定时刻自动向已配置的通知渠道推送前一天的流量统计与消费日报。
 
@@ -202,6 +208,8 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
 ## 在线更新
 
 进入“关于 → 版本中心”，点击检查更新即可。
+
+`v1.1.0` 包含 Telegram 公网 IP 管理、共享带宽选择、旧 EIP 自动清理与后台重试，以及实例标识显示优化。
 
 只有 GitHub Release 的对应平台安装包、SHA256 校验文件和 Ed25519 签名全部准备好时才会更新。当前已安装程序使用内置公钥验证发布签名，再校验安装包 SHA256；任一校验失败都不会切换版本。原生部署由后台更新服务下载、校验、切换版本并重启控制台；Docker 部署由更新容器下载、校验、替换应用文件并重建容器。两种方式都会进行健康检查，失败时恢复更新前版本。更新不会删除账号、配置和流量数据。
 

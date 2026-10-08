@@ -1025,6 +1025,13 @@ func TestTelegramSettingEnabledAcceptsLegacyValues(t *testing.T) {
 	}
 }
 
+func TestTelegramInstanceDisplayPrefersInstanceID(t *testing.T) {
+	account := app.Account{InstanceID: "i-3519", Remark: "3519", InstanceName: "自定义名称"}
+	if got := instanceDisplayName(account); got != "i-3519" {
+		t.Fatalf("Telegram instance label = %q, want instance ID", got)
+	}
+}
+
 func TestTelegramConflictError(t *testing.T) {
 	if !telegramConflictError(errors.New("Telegram: Conflict: terminated by other getUpdates request")) {
 		t.Fatal("Telegram getUpdates conflict was not detected")

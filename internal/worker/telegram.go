@@ -174,7 +174,7 @@ func (w *Worker) handleTelegramCallback(ctx context.Context, client *notify.Tele
 	action := data[1]
 	messageID := strconv.FormatInt(int64(numberValue(message["message_id"])), 10)
 	answer := ""
-	if action == "traffic" || action == "listrefresh" || action == "refreshall" || action == "refresh" || action == "start" || action == "stop" || action == "confirm" {
+	if action == "traffic" || action == "listrefresh" || action == "refreshall" || action == "refresh" || action == "start" || action == "stop" || action == "confirm" || action == "replace_confirm" {
 		answer = "正在处理..."
 	}
 	_ = client.AnswerCallback(ctx, callbackID, answer)
@@ -211,6 +211,46 @@ func (w *Worker) handleTelegramCallback(ctx context.Context, client *notify.Tele
 	case "inst":
 		id := int64(intValueAt(data, 2))
 		return edit(w.telegramInstance(id), w.instanceKeyboard(id, maxInt(1, intValueAt(data, 3))))
+	case "replace":
+		id := int64(intValueAt(data, 2))
+		page := maxInt(1, intValueAt(data, 3))
+		body, keyboard := w.telegramReplaceOptions(ctx, id, page)
+		return edit(body, keyboard)
+	case "replace_select":
+		id := int64(intValueAt(data, 2))
+		page := maxInt(1, intValueAt(data, 3))
+		packageID := ""
+		if len(data) >= 5 && data[4] != "-" {
+			packageID = data[4]
+		}
+		body, keyboard, err := w.telegramReplaceConfirm(userID, chatID, id, page, packageID)
+		if err != nil {
+			return edit("❌ "+err.Error(), w.instanceKeyboard(id, page))
+		}
+		return edit(body, keyboard)
+	case "replace_confirm":
+		if len(data) < 3 {
+			return edit("⏱️ 更换公网 IP 确认已失效，请重新发起操作。", w.mainKeyboard())
+		}
+		record, err := w.Store.UseTelegramActionToken(data[2], userID, chatID)
+		if err != nil {
+			return err
+		}
+		if record == nil || record.Action != "replace_ip" {
+			return edit("⏱️ 更换公网 IP 确认已失效，请重新发起操作。", w.mainKeyboard())
+		}
+		message, replaceErr := w.replaceTelegramIP(ctx, record.AccountID, record.Payload)
+		if replaceErr != nil {
+			w.audit(app.AuditSourceTelegram, "instance_replace_ip", "instance", strconv.FormatInt(record.AccountID, 10), "Telegram 更换公网 IP", replaceErr)
+			return edit("❌ "+replaceErr.Error(), w.instanceKeyboard(record.AccountID, 1))
+		}
+		w.audit(app.AuditSourceTelegram, "instance_replace_ip", "instance", strconv.FormatInt(record.AccountID, 10), "Telegram 更换公网 IP", nil)
+		return edit(message, w.instanceKeyboard(record.AccountID, 1))
+	case "replace_cancel":
+		if len(data) >= 3 {
+			_, _ = w.Store.UseTelegramActionToken(data[2], userID, chatID)
+		}
+		return edit("已取消更换公网 IP。", w.mainKeyboard())
 	case "refresh":
 		id := int64(intValueAt(data, 2))
 		page := maxInt(1, intValueAt(data, 3))
@@ -445,6 +485,198 @@ func (w *Worker) telegramInstance(id int64) string {
 		return "🖥️ 实例不存在或已被清理。"
 	}
 	return fmt.Sprintf("🖥️ 实例详情\n\n%s\n%s %s  ·  %s\n\n🌐 公网 IP：%s\n⚙️ 规格：%s\n📦 实例流量：%s\n🆔 实例 ID：%s\n🕒 最后同步：%s", instanceDisplayName(*a), statusIcon(a.InstanceStatus), statusLabel(a.InstanceStatus), firstNonEmpty(a.RegionID, "未知区域"), firstNonEmpty(a.PublicIP, "暂无"), firstNonEmpty(a.InstanceType, "未知"), formatTraffic(a.TrafficUsed, a.MaxTraffic), firstNonEmpty(a.InstanceID, "未知"), telegramUpdatedAt(a.UpdatedAt))
+}
+
+func (w *Worker) telegramReplaceOptions(ctx context.Context, id int64, page int) (string, map[string]any) {
+	a, err := w.Store.Account(id, false)
+	if err != nil {
+		return "❌ 实例不存在或已被清理。", w.mainKeyboard()
+	}
+	if a.PublicIPMode != "eip" || a.EIPAllocationID == "" {
+		return "❌ 当前实例没有可更换的托管 EIP。", w.instanceKeyboard(id, page)
+	}
+	client := w.clientForAccount(*a)
+	shared, ok := client.(cloud.SharedBandwidthEIPClient)
+	if !ok {
+		return "❌ 当前云账号不支持共享带宽查询。", w.instanceKeyboard(id, page)
+	}
+	packages, err := shared.DescribeCommonBandwidthPackages(ctx, a.RegionID)
+	if err != nil {
+		return "❌ 共享带宽查询失败：" + err.Error(), w.instanceKeyboard(id, page)
+	}
+	lines := []string{"🔄 更换公网 IP", "", "实例 ID：" + firstNonEmpty(a.InstanceID, "未知"), "当前 IP：" + firstNonEmpty(a.PublicIP, "暂无"), "", "请选择共享带宽："}
+	keyboard := [][]map[string]string{{{"text": "不加入共享带宽", "callback_data": fmt.Sprintf("m:replace_select:%d:%d:-", id, page)}}}
+	for _, pkg := range packages {
+		packageID := firstNonEmpty(stringValue(pkg["id"]), stringValue(pkg["bandwidthPackageId"]))
+		if packageID == "" {
+			continue
+		}
+		label := firstNonEmpty(stringValue(pkg["name"]), packageID)
+		bandwidth := stringValue(pkg["bandwidth"])
+		if bandwidth != "" && bandwidth != "0" {
+			label += " · " + bandwidth + " Mbps"
+		}
+		keyboard = append(keyboard, []map[string]string{{"text": label, "callback_data": fmt.Sprintf("m:replace_select:%d:%d:%s", id, page, packageID)}})
+	}
+	keyboard = append(keyboard, []map[string]string{{"text": "↩️ 返回详情", "callback_data": fmt.Sprintf("m:inst:%d:%d", id, page)}})
+	return strings.Join(lines, "\n"), map[string]any{"inline_keyboard": keyboard}
+}
+
+func (w *Worker) telegramReplaceConfirm(userID, chatID string, id int64, page int, packageID string) (string, map[string]any, error) {
+	a, err := w.Store.Account(id, false)
+	if err != nil {
+		return "", nil, fmt.Errorf("实例不存在或已被清理")
+	}
+	label := "不加入共享带宽"
+	if packageID != "" {
+		client := w.clientForAccount(*a)
+		shared, ok := client.(cloud.SharedBandwidthEIPClient)
+		if !ok {
+			return "", nil, fmt.Errorf("当前云账号不支持共享带宽配置")
+		}
+		packages, listErr := shared.DescribeCommonBandwidthPackages(context.Background(), a.RegionID)
+		if listErr != nil {
+			return "", nil, fmt.Errorf("共享带宽查询失败：%v", listErr)
+		}
+		found := false
+		for _, pkg := range packages {
+			if stringValue(pkg["id"]) == packageID {
+				label = firstNonEmpty(stringValue(pkg["name"]), packageID)
+				if bandwidth := stringValue(pkg["bandwidth"]); bandwidth != "" && bandwidth != "0" {
+					label += " · " + bandwidth + " Mbps"
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return "", nil, fmt.Errorf("共享带宽包不存在或已不可用")
+		}
+	}
+	token := randomActionToken()
+	if err := w.Store.CreateTelegramActionToken(token, userID, chatID, "replace_ip", id, packageID, w.telegramConfirmTTL()); err != nil {
+		return "", nil, err
+	}
+	body := fmt.Sprintf("⚠️ 确认更换公网 IP？\n\n实例 ID：%s\n当前 IP：%s\n共享带宽：%s\n\n将申请新 EIP，绑定到该实例；旧 EIP 会解绑、移出共享带宽并释放。\n请在 %d 秒内确认。", firstNonEmpty(a.InstanceID, "未知"), firstNonEmpty(a.PublicIP, "暂无"), label, int(w.telegramConfirmTTL()/time.Second))
+	keyboard := map[string]any{"inline_keyboard": [][]map[string]string{{{"text": "⚠️ 确认更换", "callback_data": "m:replace_confirm:" + token}, {"text": "取消", "callback_data": "m:replace_cancel:" + token}}, {{"text": "↩️ 返回详情", "callback_data": fmt.Sprintf("m:inst:%d:%d", id, page)}}}}
+	return body, keyboard, nil
+}
+
+func (w *Worker) replaceTelegramIP(ctx context.Context, id int64, packageID string) (string, error) {
+	a, err := w.Store.Account(id, false)
+	if err != nil {
+		return "", fmt.Errorf("实例不存在或已被清理")
+	}
+	if a.PublicIPMode != "eip" || a.EIPAllocationID == "" {
+		return "", fmt.Errorf("当前实例没有可更换的托管 EIP")
+	}
+	client := w.clientForAccount(*a)
+	if client == nil {
+		return "", fmt.Errorf("云客户端未配置")
+	}
+	operationCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	oldAllocationID, oldIP := a.EIPAllocationID, a.PublicIP
+	var allocationID, address string
+	if packageID != "" {
+		shared, ok := client.(cloud.SharedBandwidthEIPClient)
+		if !ok {
+			return "", fmt.Errorf("当前云账号不支持共享带宽配置")
+		}
+		if bandwidthClient, ok := client.(cloud.BandwidthEIPClient); ok {
+			allocationID, address, err = bandwidthClient.AllocateEIPWithBandwidth(operationCtx, a.RegionID, 1)
+		} else {
+			allocationID, address, err = client.AllocateEIP(operationCtx, a.RegionID)
+		}
+		if err == nil {
+			err = shared.AddEIPToCommonBandwidthPackage(operationCtx, a.RegionID, packageID, allocationID)
+		}
+	} else {
+		if bandwidthClient, ok := client.(cloud.BandwidthEIPClient); ok {
+			allocationID, address, err = bandwidthClient.AllocateEIPWithBandwidth(operationCtx, a.RegionID, 1)
+		} else {
+			allocationID, address, err = client.AllocateEIP(operationCtx, a.RegionID)
+		}
+	}
+	if err != nil {
+		if allocationID != "" {
+			_ = cloud.CleanupEIP(operationCtx, client, a.RegionID, allocationID)
+		}
+		return "", fmt.Errorf("申请新 EIP 失败：%w", err)
+	}
+	if err := telegramUnassociateEIPWithRetry(operationCtx, client, a.RegionID, oldAllocationID); err != nil && !cloud.IsNotFound(err) {
+		_ = cloud.CleanupEIP(operationCtx, client, a.RegionID, allocationID)
+		return "", fmt.Errorf("旧 EIP 解绑失败：%w", err)
+	}
+	if err := telegramAssociateEIPWithRetry(operationCtx, client, a.RegionID, allocationID, a.InstanceID); err != nil {
+		restoreErr := telegramAssociateEIPWithRetry(operationCtx, client, a.RegionID, oldAllocationID, a.InstanceID)
+		_ = cloud.CleanupEIP(operationCtx, client, a.RegionID, allocationID)
+		if restoreErr == nil {
+			return "", fmt.Errorf("新 EIP 绑定失败，已恢复旧 EIP：%w", err)
+		}
+		return "", fmt.Errorf("新 EIP 绑定失败，旧 EIP 恢复也失败：%w；恢复错误：%v", err, restoreErr)
+	}
+	if err := w.Store.UpdateNetwork(id, map[string]any{"eip_allocation_id": allocationID, "eip_address": address, "public_ip": address, "public_ip_mode": "eip", "eip_managed": true}); err != nil {
+		return "", fmt.Errorf("新 EIP 已绑定，但本地状态保存失败：%w", err)
+	}
+	cleanupPending := false
+	if cleanupErr := cloud.CleanupEIP(operationCtx, client, a.RegionID, oldAllocationID); cleanupErr != nil {
+		cleanupPending = true
+		if enqueueErr := w.Store.EnqueueJob(randomActionToken(), "cleanup_eip", oldAllocationID, map[string]any{"accountId": id, "regionId": a.RegionID, "allocationId": oldAllocationID}); enqueueErr != nil {
+			w.Store.AddLog("warning", "Telegram 旧 EIP 清理任务入队失败: "+enqueueErr.Error()+"；清理错误: "+cleanupErr.Error())
+		}
+	}
+	message := fmt.Sprintf("✅ 公网 IP 更换成功\n\n实例 ID：%s\n旧 IP：%s\n新 IP：%s", firstNonEmpty(a.InstanceID, "未知"), firstNonEmpty(oldIP, "暂无"), firstNonEmpty(address, "暂无"))
+	if packageID != "" {
+		message += "\n共享带宽：已加入"
+	} else {
+		message += "\n共享带宽：未加入"
+	}
+	if cleanupPending {
+		message += "\n旧 EIP：清理任务已排队"
+	} else {
+		message += "\n旧 EIP：已移除并释放"
+	}
+	return message, nil
+}
+
+func telegramUnassociateEIPWithRetry(ctx context.Context, client cloud.Client, region, allocationID string) error {
+	const attempts = 8
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 && !sleepContext(ctx, 1500*time.Millisecond) {
+			if lastErr != nil {
+				return lastErr
+			}
+			return ctx.Err()
+		}
+		lastErr = client.UnassociateEIP(ctx, region, allocationID)
+		if lastErr == nil || cloud.IsNotFound(lastErr) {
+			return lastErr
+		}
+		if !cloud.IsEIPOperationPending(lastErr) {
+			return lastErr
+		}
+	}
+	return lastErr
+}
+
+func telegramAssociateEIPWithRetry(ctx context.Context, client cloud.Client, region, allocationID, instanceID string) error {
+	const attempts = 8
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 && !sleepContext(ctx, 1500*time.Millisecond) {
+			if lastErr != nil {
+				return lastErr
+			}
+			return ctx.Err()
+		}
+		lastErr = client.AssociateEIP(ctx, region, allocationID, instanceID)
+		if lastErr == nil || !cloud.IsEIPAssociationConflict(lastErr) {
+			return lastErr
+		}
+	}
+	return lastErr
 }
 
 func (w *Worker) telegramReleaseConfirm(id int64, ttl time.Duration) string {
@@ -741,7 +973,7 @@ func instanceStatusCounts(accounts []app.Account) (running, processing, stopped,
 	return
 }
 func instanceDisplayName(account app.Account) string {
-	return firstNonEmpty(account.Remark, account.InstanceName, account.InstanceID, "未命名实例")
+	return firstNonEmpty(account.InstanceID, account.Remark, account.InstanceName, "未知实例")
 }
 func formatTraffic(used, max float64) string {
 	if max > 0 {
@@ -828,6 +1060,9 @@ func (w *Worker) instanceKeyboard(id int64, page ...int) map[string]any {
 		keyboard = append(keyboard, []map[string]string{{"text": "🔄 刷新状态", "callback_data": fmt.Sprintf("m:refresh:%d:%d", id, currentPage)}})
 	}
 	if a.InstanceStatus != "Releasing" {
+		if a.PublicIPMode == "eip" && a.EIPAllocationID != "" {
+			keyboard = append(keyboard, []map[string]string{{"text": "🔄 更换公网 IP", "callback_data": fmt.Sprintf("m:replace:%d:%d", id, currentPage)}})
+		}
 		keyboard = append(keyboard, []map[string]string{{"text": "🗑️ 释放实例", "callback_data": fmt.Sprintf("m:release:%d:%d", id, currentPage)}})
 	}
 	keyboard = append(keyboard, []map[string]string{{"text": "↩️ 实例列表", "callback_data": fmt.Sprintf("m:list:%d", currentPage)}, {"text": "🏠 主菜单", "callback_data": "m:home"}})
