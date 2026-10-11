@@ -784,6 +784,38 @@ func TestDeleteTaskReleasesEIPAndMarksAccount(t *testing.T) {
 	}
 }
 
+func TestFinalizeMissingInstanceCleansLocalReleaseResidual(t *testing.T) {
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.UpsertAccount(app.Account{AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-test", GroupKey: "g", InstanceID: "i-missing", InstanceStatus: "Releasing"}); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := s.LoadAccounts(false)
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("load account: %#v %v", accounts, err)
+	}
+	id := accounts[0].ID
+	if err := s.SaveRotationGroups([]app.RotationGroup{{ID: "rotation-missing", Members: []app.RotationMember{{AccountID: id}}}}); err != nil {
+		t.Fatal(err)
+	}
+	job := &store.Job{EntityKey: fmt.Sprint(id)}
+	w := &Worker{Store: s}
+	if err := w.finalizeMissingInstance(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	account, err := s.Account(id, true)
+	if err != nil || account.IsDeleted != 2 || account.InstanceStatus != "Released" {
+		t.Fatalf("missing account was not finalized: %#v %v", account, err)
+	}
+	groups, err := s.LoadRotationGroups()
+	if err != nil || len(groups) != 1 || len(groups[0].Members) != 0 {
+		t.Fatalf("missing account remains in rotation group: %#v %v", groups, err)
+	}
+}
+
 func TestDeleteTaskStopsRunningInstanceBeforeDeletion(t *testing.T) {
 	s, err := store.Open(t.TempDir())
 	if err != nil {

@@ -617,6 +617,16 @@ func (w *Worker) Run(ctx context.Context) {
 		started := w.beginRuntime(runtimeJobQueue, "正在执行 "+job.Kind, time.Time{})
 		if err := w.execute(ctx, job); err != nil {
 			w.Log.Printf("job %s: %v", job.JobID, err)
+			if job.Kind == "delete_instance" && cloud.IsNotFound(err) {
+				if finalizeErr := w.finalizeMissingInstance(ctx, job); finalizeErr == nil {
+					_ = w.Store.FinishJob(job.JobID)
+					w.Store.AddLog("info", "云端实例已不存在，已清理本地释放残留: "+job.EntityKey)
+					w.audit(app.AuditSourceJob, "instance_release", "instance", job.EntityKey, "云端实例已不存在，本地释放任务已完成", nil)
+					w.finishRuntime(runtimeJobQueue, started, "云端实例已不存在，已清理本地残留", time.Time{}, nil)
+					w.setRuntimeWaiting(runtimeJobQueue, "后台任务队列空闲", time.Time{})
+					continue
+				}
+			}
 			maxAttempts := 5
 			if job.Kind == "create_ecs" {
 				message := strings.ToLower(err.Error())
@@ -670,6 +680,29 @@ func (w *Worker) Run(ctx context.Context) {
 		w.finishRuntime(runtimeJobQueue, started, "已完成 "+job.Kind, time.Time{}, nil)
 		w.setRuntimeWaiting(runtimeJobQueue, "后台任务队列空闲", time.Time{})
 	}
+}
+
+func (w *Worker) finalizeMissingInstance(ctx context.Context, job *store.Job) error {
+	id, err := strconv.ParseInt(job.EntityKey, 10, 64)
+	if err != nil {
+		return err
+	}
+	account, err := w.Store.Account(id, true)
+	if err != nil {
+		return err
+	}
+	if account.EIPManaged && account.EIPAllocationID != "" {
+		client := w.cloudClient(app.AccountGroup{AccessKeyID: account.AccessKeyID, AccessKeySecret: account.AccessKeySecret, RegionID: account.RegionID, SiteType: account.SiteType})
+		if client != nil {
+			if cleanupErr := cloud.CleanupEIP(ctx, client, account.RegionID, account.EIPAllocationID); cleanupErr != nil && !cloud.IsNotFound(cleanupErr) {
+				w.Store.AddLog("warning", "实例已不存在，但托管 EIP 清理仍需重试: "+cleanupErr.Error())
+			}
+		}
+	}
+	if err := w.Store.RemoveRotationMember(id); err != nil {
+		return fmt.Errorf("移除实例分组关系失败: %w", err)
+	}
+	return w.Store.PhysicallyDelete(id)
 }
 
 func (w *Worker) execute(ctx context.Context, job *store.Job) error {
