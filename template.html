@@ -4058,9 +4058,109 @@
             font-size: 0.74rem;
         }
 
-        .log-card {
-            border-radius: 14px !important;
-            padding: 1rem !important;
+        .logs-panel .section-head {
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .logs-panel .section-title { letter-spacing: 0; }
+        .logs-header-actions, .logs-auto, .logs-toolbar, .logs-filters, .logs-merge, .logs-status, .logs-footer, .log-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logs-header-actions { flex-wrap: wrap; gap: 8px; }
+        .logs-auto { font-size: 12px; white-space: nowrap; }
+        .logs-auto .switch-control { flex: 0 0 auto; }
+        .logs-menu { position: relative; }
+        .logs-menu-popup {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 6px);
+            z-index: 30;
+            min-width: 150px;
+            padding: 4px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, .12);
+        }
+        .logs-menu-popup button {
+            width: 100%;
+            padding: 9px 10px;
+            text-align: left;
+            color: var(--danger-text);
+            font-size: 13px;
+            border-radius: 4px;
+        }
+        .logs-menu-popup button:hover { background: var(--danger-bg); }
+        .logs-toolbar { justify-content: space-between; margin-top: 18px; flex-wrap: wrap; }
+        .logs-tabs {
+            display: grid;
+            grid-template-columns: repeat(2, 88px);
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            padding: 2px;
+            background: var(--control-bg);
+            flex: 0 0 auto;
+        }
+        .logs-tabs button { min-height: 32px; font-size: 13px; border-radius: 4px; color: var(--muted); }
+        .logs-tabs button.active { background: var(--accent-light); color: var(--accent-strong); font-weight: 700; }
+        .logs-filters { flex: 1 1 320px; justify-content: flex-end; min-width: 0; }
+        .logs-filters .glass-input { min-height: 36px; padding: 7px 10px; font-size: 13px; border-radius: 6px; }
+        .logs-filters input[type="search"] { min-width: 0; flex: 1 1 180px; max-width: 360px; }
+        .logs-filters .logs-level { flex: 0 0 100px; width: 100px; }
+        .logs-merge { flex: 0 0 auto; font-size: 12px; white-space: nowrap; gap: 6px; }
+        .logs-merge input { accent-color: var(--accent); }
+        .logs-status { justify-content: space-between; flex-wrap: wrap; min-height: 42px; padding: 8px 0; font-size: 12px; color: var(--muted); }
+        .logs-stamp { font-variant-numeric: tabular-nums; }
+        .logs-order { font-size: 11px; }
+        .logs-new-button { color: var(--accent-strong); background: var(--accent-light); border-radius: 4px; padding: 4px 8px; font-size: 12px; }
+        .logs-error { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; color: var(--danger-text); font-size: 13px; padding: 9px 0; overflow-wrap: anywhere; }
+        .logs-poll-error { color: var(--warning-text); font-size: 12px; padding-bottom: 8px; }
+        .logs-scroll { max-height: min(54vh, max(180px, calc(100dvh - 360px)), 640px); overflow: auto; scrollbar-gutter: stable; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+        .logs-table-head, .log-row { display: grid; grid-template-columns: 158px 56px minmax(0, 1fr) 80px; gap: 12px; align-items: start; padding: 10px 8px; }
+        .logs-table-head { position: sticky; top: 0; z-index: 1; background: var(--panel-strong); color: var(--muted); font-size: 11px; }
+        .log-row { min-height: 44px; border-bottom: 1px solid var(--line); border-left: 2px solid transparent; font-size: 13px; }
+        .log-row:last-child { border-bottom: 0; }
+        .log-row:hover { background: var(--hover-bg); }
+        .log-row.error { border-left-color: var(--danger); }
+        .log-row.warning { border-left-color: var(--warning); }
+        .log-time { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 22px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+        .log-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: var(--muted); background: var(--panel-strong); white-space: nowrap; }
+        .log-badge.error { color: var(--danger-text); background: var(--danger-bg); }
+        .log-badge.warning { color: var(--warning-text); background: var(--warning-bg); }
+        .log-content { min-width: 0; }
+        .log-message { margin: 0; white-space: pre-wrap; line-height: 22px; overflow-wrap: anywhere; }
+        .log-message.clamped { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .log-actions { justify-content: flex-end; gap: 8px; min-height: 22px; opacity: .55; }
+        .log-row:hover .log-actions, .log-row:focus-within .log-actions { opacity: 1; }
+        .log-text-action { padding: 1px 0; font-size: 12px; line-height: 20px; color: var(--accent); background: transparent; border: 0; white-space: nowrap; }
+        .log-text-action:hover { text-decoration: underline; }
+        .log-group-meta { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 18px; }
+        .log-group-entries { margin-top: 10px; border-top: 1px solid var(--line); }
+        .log-group-entries > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; padding-top: 8px; font-size: 12px; line-height: 20px; overflow-wrap: anywhere; }
+        .logs-empty { padding: 40px 12px; text-align: center; color: var(--muted); font-size: 13px; }
+        .logs-empty .log-text-action { margin-left: 8px; }
+        .logs-footer { justify-content: space-between; flex-wrap: wrap; min-height: 44px; padding-top: 10px; color: var(--muted); font-size: 12px; }
+        .logs-panel button:focus-visible, .logs-scroll:focus-visible, .logs-filters select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        @media (max-width: 700px) {
+            .logs-toolbar { align-items: stretch; gap: 10px; }
+            .logs-filters { flex-basis: 100%; }
+            .logs-filters input[type="search"] { max-width: none; }
+            .logs-header-actions { gap: 6px; }
+            .logs-table-head { display: none; }
+            .log-row { grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 10px; }
+            .log-time { grid-column: 1; grid-row: 1; }
+            .log-type { grid-column: 2; grid-row: 1; }
+            .log-actions { grid-column: 3; grid-row: 1; opacity: 1; }
+            .log-content { grid-column: 1 / -1; grid-row: 2; }
+            .log-group-entries > div { grid-template-columns: 1fr; gap: 0; }
+            .logs-scroll { max-height: max(160px, min(480px, calc(100dvh - 450px))); }
+        }
+        @media (max-width: 360px) {
+            .logs-scroll { max-height: max(160px, calc(100dvh - 510px)); }
         }
 
         .desktop-visible {
@@ -5531,38 +5631,74 @@
 
                     </section>
 
-                    <section v-if="currentMenu === 'logs' && isAdmin" class="glass-panel section-panel">
+                    <section v-if="currentMenu === 'logs' && isAdmin" class="glass-panel section-panel logs-panel" aria-labelledby="logs-title">
                         <div class="section-head">
-                            <div>
-                                <p class="subtle-label">系统日志</p>
-                                <h2 class="section-title">系统日志</h2>
-                            </div>
-                            <div class="tab-pill-group">
-                                <button @click="currentLogTab = 'action'; fetchLogs()" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'action' }">动作日志</button>
-                                <button @click="currentLogTab = 'heartbeat'; fetchLogs()" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'heartbeat' }">心跳日志</button>
-                                <button @click="clearLogs" class="danger-button">清空</button>
-                            </div>
-                        </div>
-
-                        <div class="mt-5 space-y-3">
-                            <article v-for="log in systemLogs" :key="log.id || log.time_str + log.message" class="metric-card log-card">
-                                <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <div class="flex items-center gap-2">
-                                        <span class="status-pill"
-                                            :class="currentLogTab === 'action'
-                                                ? (log.type === 'warning' ? 'status-transition' : log.type === 'error' ? 'status-stopped' : 'status-running')
-                                                : (log.type === 'error' ? 'status-stopped' : log.type === 'warning' ? 'status-transition' : 'status-running')">
-                                            {{ logTypeLabel(log.type) }}
-                                        </span>
-                                        <span class="text-xs text-[var(--muted)] font-mono">{{ log.time_str }}</span>
+                            <h2 id="logs-title" class="section-title">系统日志</h2>
+                            <div class="logs-header-actions">
+                                <label class="logs-auto" title="自动检查新日志，更新列表前会提示">
+                                    <span>自动刷新</span>
+                                    <span class="switch-control"><input type="checkbox" v-model="logView.state.auto"><span class="switch-slider"></span></span>
+                                </label>
+                                <button @click="logView.refresh" class="ghost-button compact-button" :disabled="logView.state.loading || logView.state.clearing">刷新</button>
+                                <div class="logs-menu" @focusout="logView.closeMenuOnBlur" @keydown.esc.stop.prevent="logView.closeMenu($event)">
+                                    <button class="ghost-button compact-button" @click="logView.state.menuOpen = !logView.state.menuOpen" aria-haspopup="menu" :aria-expanded="logView.state.menuOpen">更多</button>
+                                    <div v-if="logView.state.menuOpen" class="logs-menu-popup" role="menu">
+                                        <button role="menuitem" @click="logView.clearSelected" :disabled="logView.state.clearing">清空{{ currentLogTab === 'heartbeat' ? '心跳' : '动作' }}日志</button>
                                     </div>
                                 </div>
-                                <p class="mt-3 font-mono text-sm leading-6">{{ log.message }}</p>
-                            </article>
-
-                            <div v-if="systemLogs.length === 0" class="metric-card">
-                                <p class="text-center text-sm text-[var(--muted)]">当前没有日志记录。</p>
                             </div>
+                        </div>
+                        <div class="logs-toolbar">
+                            <div class="logs-tabs" role="group" aria-label="日志类别">
+                                <button @click="logView.selectTab('action')" :class="{ active: currentLogTab === 'action' }" :aria-pressed="currentLogTab === 'action'">动作日志</button>
+                                <button @click="logView.selectTab('heartbeat')" :class="{ active: currentLogTab === 'heartbeat' }" :aria-pressed="currentLogTab === 'heartbeat'">心跳日志</button>
+                            </div>
+                            <form class="logs-filters" role="search" @submit.prevent="logView.refresh">
+                                <input v-model="logView.state.search" type="search" maxlength="200" class="glass-input" aria-label="搜索日志内容" placeholder="搜索日志内容">
+                                <select v-if="currentLogTab === 'action'" v-model="logView.state.level" class="glass-input logs-level" aria-label="日志级别">
+                                    <option value="all">全部级别</option><option value="error">错误</option><option value="warning">警告</option><option value="info">信息</option>
+                                </select>
+                                <label v-else class="logs-merge"><input type="checkbox" v-model="logView.state.mergeHeartbeats">合并相同心跳</label>
+                            </form>
+                        </div>
+                        <div class="logs-status">
+                            <span title="心跳只表示监控循环有响应，不代表所有云接口均正常">最近心跳：<span class="logs-stamp" :title="logView.state.lastHeartbeat?.time_str">{{ logView.state.lastHeartbeat?.time_str || (logView.state.loading ? '获取中…' : logView.state.error ? '暂未获取' : '暂无记录') }}</span></span>
+                            <button v-if="logView.state.pending" class="logs-new-button" @click="logView.refresh">{{ logView.state.pending === 'new' ? '查看新日志' : '刷新记录' }}</button>
+                            <span v-else class="logs-order">{{ logView.state.auto ? '最新在前 · 自动刷新中' : '最新在前 · 已暂停刷新' }}</span>
+                        </div>
+                        <div v-if="logView.state.error" class="logs-error" role="alert"><span>{{ logView.state.error }}</span><button @click="logView.retry" class="log-text-action">重试</button></div>
+                        <div v-if="logView.state.pollError" class="logs-poll-error" role="status">{{ logView.state.pollError }}</div>
+                        <div class="logs-scroll" ref="logViewport" tabindex="0" aria-label="日志记录" :aria-busy="logView.state.loading || logView.state.loadingMore">
+                            <div v-if="!systemLogs.length" class="logs-empty">
+                                <template v-if="logView.state.loading">正在读取日志…</template>
+                                <template v-else-if="!logView.state.error">
+                                    {{ logView.state.search || logView.state.level !== 'all' ? '没有符合筛选条件的日志。' : '暂无日志记录。' }}
+                                    <button v-if="logView.state.search || logView.state.level !== 'all'" @click="logView.resetFilters" class="log-text-action">重置筛选</button>
+                                </template>
+                            </div>
+                            <div v-else role="table" aria-label="系统日志列表">
+                                <div class="logs-table-head" role="row"><span role="columnheader">时间</span><span role="columnheader">级别</span><span role="columnheader">日志内容</span><span role="columnheader">操作</span></div>
+                                <div v-for="row in logView.rows" :key="row.key" class="log-row" :class="row.type" role="row">
+                                    <span class="log-time" role="cell">{{ row.time_str }}</span>
+                                    <span class="log-type" role="cell"><span class="log-badge" :class="row.type">{{ logView.levelLabel(row.type) }}</span></span>
+                                    <div class="log-content" role="cell">
+                                        <p class="log-message" :class="{ clamped: logView.longMessage(row) && !logView.state.expanded[row.key] }">{{ logView.safeMessage(row.message) }}</p>
+                                        <p v-if="row.entries.length > 1" class="log-group-meta">连续 {{ row.entries.length }} 次 · {{ row.entries[row.entries.length - 1].time_str.slice(11) }} 至 {{ row.time_str.slice(11) }}</p>
+                                        <div v-if="row.entries.length > 1 && logView.state.expanded[row.key]" class="log-group-entries" role="list" aria-label="原始心跳记录">
+                                            <div v-for="entry in row.entries" :key="entry.id" role="listitem"><span class="log-time">{{ entry.time_str }}</span><span>{{ logView.safeMessage(entry.message) }}</span></div>
+                                        </div>
+                                    </div>
+                                    <div class="log-actions" role="cell">
+                                        <button v-if="row.entries.length > 1 || logView.longMessage(row)" class="log-text-action" @click="logView.toggleExpanded(row)" :aria-expanded="!!logView.state.expanded[row.key]">{{ logView.state.expanded[row.key] ? '收起' : '展开' }}</button>
+                                        <button class="log-text-action" @click="logView.copyLog(row)" :title="row.entries.length > 1 ? '复制这组原始心跳记录' : '复制日志'">复制</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="logs-footer">
+                            <span>已加载 {{ systemLogs.length }} 条原始记录</span>
+                            <button v-if="logView.state.hasMore" @click="logView.loadMore" class="ghost-button compact-button" :disabled="logView.state.loading || logView.state.loadingMore">{{ logView.state.loadingMore ? '加载中…' : '加载更多' }}</button>
+                            <span v-else-if="systemLogs.length && !logView.state.loading">没有更早的记录</span>
                         </div>
                     </section>
 
@@ -6265,6 +6401,7 @@
 
     <script src="static/vue.global.prod.js?v=__ASSET_VERSION__"></script>
     <script src="static/billing-display.js?v=__ASSET_VERSION__"></script>
+    <script src="static/log-view.js?v=__ASSET_VERSION__"></script>
     <script>
         // Keep legacy action URLs while attaching the Go backend's CSRF token.
         const nativeFetch = window.fetch.bind(window);
@@ -6822,7 +6959,7 @@
                         mobileNavScrollFrame = 0;
                     }
                 };
-                const logAutoRefresh = ref(false);
+                const logAutoRefresh = ref(true);
                 const statusSyncInterval = ref(600);
                 const sendingEmail = ref(false);
                 const testingTelegram = ref(false);
@@ -7018,7 +7155,6 @@
 
                 const statusFilter = ref({ account: '', search: '' });
                 const manageFilter = ref({ account: '', region: '', status: '', search: '' });
-                let logInterval = null;
                 let statusInterval = null;
                 let manageInterval = null;
                 let accountInterval = null;
@@ -7861,50 +7997,22 @@
                     }
                 };
 
-                const fetchLogs = async () => {
-                    if (!isAdmin.value) return;
-                    try {
-                        const res = await fetch(`index.php?action=get_logs&tab=${currentLogTab.value}`);
-                        const data = await res.json();
-                        systemLogs.value = data.data || [];
-                    } catch (error) {
-                        console.error('Fetch logs failed', error);
-                    }
-                };
-
-                const clearLogs = async () => {
-                    const confirmed = await askConfirm(`确定清空${currentLogTab.value === 'action' ? '动作' : '心跳'}日志吗？`, {
-                        title: '清空日志'
-                    });
-                    if (!confirmed) return;
-                    try {
-                        const res = await fetch('index.php?action=clear_logs', {
-                            method: 'POST',
-                            body: JSON.stringify({ tab: currentLogTab.value })
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            fetchLogs();
-                        }
-                    } catch (error) {
-                        console.error('Clear logs failed', error);
-                    }
-                };
-
-                const startLogPolling = () => {
-                    fetchLogs();
-                    logAutoRefresh.value = true;
-                    if (logInterval) clearInterval(logInterval);
-                    logInterval = setInterval(fetchLogs, 3000);
-                };
-
-                const stopLogPolling = () => {
-                    logAutoRefresh.value = false;
-                    if (logInterval) {
-                        clearInterval(logInterval);
-                        logInterval = null;
-                    }
-                };
+                const logViewport = ref(null);
+                const logView = ECSLogView.create({
+                    Vue,
+                    tab: currentLogTab,
+                    items: systemLogs,
+                    auto: logAutoRefresh,
+                    confirm: askConfirm,
+                    notify: openAlert,
+                    copy: copyCredential,
+                    onUnauthorized: () => { isAdmin.value = false; },
+                    onReset: () => Vue.nextTick(() => { if (logViewport.value) logViewport.value.scrollTop = 0; })
+                });
+                const fetchLogs = () => logView.refresh();
+                const clearLogs = () => logView.clearSelected();
+                const startLogPolling = () => logView.start();
+                const stopLogPolling = () => logView.stop();
 
                 const stopStatusPolling = () => {
                     if (statusInterval) {
@@ -9118,12 +9226,7 @@
                     Unknown: '未知'
                 }[status] || '未知');
 
-                const logTypeLabel = (type) => ({
-                    info: '信息',
-                    warning: '提醒',
-                    error: '错误',
-                    heartbeat: '检测'
-                }[type] || '信息');
+                const logTypeLabel = ECSLogView.levelLabel;
 
                 const reloadPage = () => {
                     persistNavigationState();
@@ -9180,6 +9283,7 @@
                     } else {
                         statusInstances.value = [];
                         initialWorkspaceLoading.value = false;
+                        stopLogPolling();
                         stopStatusPolling();
                         stopManagePolling();
                         stopAccountPolling();
@@ -9231,7 +9335,7 @@
                 onUnmounted(() => {
                     accountTestController?.abort();
                     teardownMobileNavScroll();
-                    stopLogPolling();
+                    logView.dispose();
                     stopStatusPolling();
                     stopManagePolling();
                     stopAccountPolling();
@@ -9300,6 +9404,8 @@
                     loading,
                     loadingCheckInit,
                     logAutoRefresh,
+                    logView,
+                    logViewport,
                     menuItems,
                     settingsItems,
                     settingsGroups,

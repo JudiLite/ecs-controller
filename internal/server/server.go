@@ -321,13 +321,9 @@ func (s *Server) authenticatedAction(w http.ResponseWriter, r *http.Request, act
 	case "start_update":
 		s.startUpdate(w, r, data)
 	case "get_logs":
-		s.json(w, 200, map[string]any{"data": s.Store.Logs(r.URL.Query().Get("tab"), 20)})
+		s.getLogs(w, r)
 	case "clear_logs":
-		if err := s.Store.ClearLogs(stringValue(data["tab"])); err != nil {
-			s.error(w, 500, "清空失败")
-		} else {
-			s.json(w, 200, map[string]any{"success": true})
-		}
+		s.clearLogs(w, data)
 	case "get_history":
 		id := int64(number(r.URL.Query().Get("id"), 0))
 		if _, err := s.Store.Account(id, false); err != nil {

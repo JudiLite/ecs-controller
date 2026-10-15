@@ -175,6 +175,7 @@ func (s *Store) migrate() error {
 			cloud_presence TEXT DEFAULT 'present', is_deleted INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, message TEXT, created_at INTEGER)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_type_id ON logs(type,id)`,
 		`CREATE TABLE IF NOT EXISTS login_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT, attempt_time INTEGER)`,
 		`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, csrf_token TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS traffic_hourly (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, traffic REAL, recorded_at INTEGER)`,
@@ -590,6 +591,9 @@ func (s *Store) Logs(tab string, limit int) []map[string]any {
 }
 
 func (s *Store) ClearLogs(tab string) error {
+	if tab != "action" && tab != "heartbeat" {
+		return fmt.Errorf("%w: 无效的日志类别", ErrInvalidLogQuery)
+	}
 	if tab == "heartbeat" {
 		_, err := s.DB.Exec(`DELETE FROM logs WHERE type = 'heartbeat'`)
 		return err
