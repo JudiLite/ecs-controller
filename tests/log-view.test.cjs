@@ -26,6 +26,23 @@ function fixture(extra = {}) {
     return { view, requests, notices, copied, counts: () => ({ resets, pollStarts, pollStops }), flushSearch: () => { const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); } };
 }
 
+test('reactive display rows expand and collapse without changing raw records', async t => {
+    const f = fixture({ tab: Vue.ref('heartbeat') }); t.after(() => f.view.dispose());
+    const entries = [record(3, 'heartbeat', 'loop', 1000), record(2, 'heartbeat', 'loop', 940), record(1, 'heartbeat', 'loop', 880)];
+    const start = f.view.start(); f.requests[0].resolve(response(page(entries, true))); await start;
+    assert.equal(f.view.displayRows.length, 1);
+    const group = f.view.rows[0];
+    f.view.toggleExpanded(group);
+    assert.equal(f.view.displayRows.length, 4);
+    await f.view.copyLog(f.view.displayRows[1]);
+    assert.equal(f.copied[0].split('\n').length, 1);
+    f.view.toggleExpanded(group);
+    assert.equal(f.view.displayRows.length, 1);
+    assert.equal(f.view.state.items.length, 3);
+    assert.equal(f.view.state.nextBeforeID, 1);
+    assert.equal(f.view.state.hasMore, true);
+});
+
 test('heartbeat merging keeps original records and splits gaps, dates and changed messages', () => {
     const a = record(5, 'heartbeat', 'loop', 1000), b = record(4, 'heartbeat', 'loop', 940), c = record(3, 'heartbeat', 'loop', 700);
     const d = { ...record(2, 'heartbeat', 'loop', 640), time_str: '2026-10-14 23:59:00' };
@@ -38,6 +55,46 @@ test('heartbeat merging keeps original records and splits gaps, dates and change
     assert.equal(JSON.stringify(input), before);
     assert.equal(logs.buildRows(input, false, 60).length, 5);
     assert.equal(logs.buildRows([record(1, 'error', 'same'), record(2, 'error', 'same')], true).length, 2);
+});
+
+test('expanded heartbeat records become sibling rows without duplicating source entries', () => {
+    const entries = [record(3, 'heartbeat', 'loop', 1000), record(2, 'heartbeat', 'loop', 940), record(1, 'heartbeat', 'loop', 880)];
+    const before = JSON.stringify(entries);
+    const groups = logs.buildRows(entries, true, 60);
+    const collapsed = logs.flattenRows(groups, {});
+    assert.equal(collapsed.length, 1);
+    assert.equal(collapsed[0].isGroup, true);
+    const expanded = logs.flattenRows(groups, { [groups[0].key]: true });
+    assert.equal(expanded.length, 4);
+    assert.equal(expanded[0].isGroup, true);
+    assert.deepEqual(expanded.slice(1).map(row => row.id), [3, 2, 1]);
+    assert.ok(expanded.slice(1).every(row => row.isDetail && row.entries.length === 1 && row.groupKey === groups[0].key));
+    assert.equal(new Set(expanded.map(row => row.key)).size, expanded.length);
+    assert.equal(JSON.stringify(entries), before);
+});
+
+test('flattening preserves normal rows and independently expanded groups', () => {
+    const groups = logs.buildRows([record(5, 'heartbeat', 'a', 1000), record(4, 'heartbeat', 'a', 940), record(3, 'error', 'failure', 900), record(2, 'heartbeat', 'b', 880), record(1, 'heartbeat', 'b', 820)], true, 60);
+    const shown = logs.flattenRows(groups, { [groups[0].key]: true });
+    assert.equal(shown.length, 5);
+    assert.equal(shown.find(row => row.id === 3).isDetail, false);
+    assert.equal(shown.at(-1).isGroup, true);
+    assert.equal(shown.filter(row => row.isDetail).length, 2);
+});
+
+test('template renders heartbeat details in the shared grid, not a nested list', () => {
+    const template = fs.readFileSync(path.join(__dirname, '../template.html'), 'utf8');
+    assert.ok(template.includes('v-for="row in logView.displayRows"'));
+    assert.ok(!template.includes('log-group-entries'));
+    assert.ok(template.includes('grid-template-columns: var(--logs-columns)'));
+    assert.ok(template.includes('scrollbar-width: thin'));
+    const styles = template.slice(template.indexOf('.logs-panel {'), template.indexOf('.desktop-visible {'));
+    assert.ok(!styles.includes('scrollbar-width: none'));
+    const scroll = styles.match(/\.logs-scroll\s*\{([^}]+)\}/)[1];
+    assert.match(scroll, /overflow: auto/);
+    assert.match(scroll, /scrollbar-gutter: auto/);
+    assert.match(scroll, /padding-right: 0/);
+    assert.ok(!scroll.includes('scrollbar-gutter: stable'));
 });
 
 test('common credentials are masked without hiding diagnostic codes', () => {
@@ -63,9 +120,11 @@ test('cursor loading appends older pages and polling never replaces the reading 
     f.requests[1].resolve(response(page([record(9), record(8)], false, { latest_id: 10 })));
     await more;
     assert.deepEqual([...f.view.state.items.map(item => item.id)], [10, 9, 8]);
+    const motionBeforePoll = f.view.motionKey;
     const poll = f.view.poll();
     f.requests[2].resolve(response(page([record(11), record(10)], true, { last_heartbeat: record(50, 'heartbeat') })));
     await poll;
+    assert.equal(f.view.motionKey, motionBeforePoll);
     assert.deepEqual([...f.view.state.items.map(item => item.id)], [10, 9, 8]);
     assert.equal(f.view.state.pending, 'new');
     assert.equal(f.view.state.expanded['log-10'], true);

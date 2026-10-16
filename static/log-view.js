@@ -29,6 +29,20 @@
         return rows;
     };
 
+    const flattenRows = (rows, expanded) => rows.flatMap((row) => {
+        const isGroup = row.entries.length > 1;
+        const summary = { ...row, isGroup, isDetail: false };
+        if (!isGroup || !expanded[row.key]) return [summary];
+        return [summary, ...row.entries.map(entry => ({
+            ...entry,
+            key: `${row.key}-entry-${entry.id}`,
+            entries: [entry],
+            isGroup: false,
+            isDetail: true,
+            groupKey: row.key
+        }))];
+    });
+
     const create = (options) => {
         const Vue = options.Vue;
         const state = Vue.reactive({
@@ -43,6 +57,8 @@
             expanded: {}, menuOpen: false
         });
         const rows = Vue.computed(() => buildRows(state.items, state.tab === 'heartbeat' && state.mergeHeartbeats, state.monitorInterval));
+        const displayRows = Vue.computed(() => flattenRows(rows.value, state.expanded));
+        const motionKey = Vue.computed(() => JSON.stringify([state.tab, state.level, state.search.trim(), state.items.map(item => item.id), state.expanded, state.mergeHeartbeats, state.monitorInterval]));
         const fetcher = options.fetch || ((...args) => root.fetch(...args));
         const setTimer = options.setTimeout || root.setTimeout.bind(root);
         const clearTimer = options.clearTimeout || root.clearTimeout.bind(root);
@@ -208,7 +224,7 @@
         const toggleExpanded = (row) => { state.expanded[row.key] = !state.expanded[row.key]; };
         const longMessage = (row) => { const text = safeMessage(row.message); return text.length > 80 || text.includes('\n'); };
         return Vue.reactive({
-            state, rows, start, stop, dispose, refresh, poll, loadMore, clearSelected, copyLog, safeMessage, levelLabel, longMessage, toggleExpanded,
+            state, rows, displayRows, motionKey, start, stop, dispose, refresh, poll, loadMore, clearSelected, copyLog, safeMessage, levelLabel, longMessage, toggleExpanded,
             retry: () => state.errorMode === 'more' ? loadMore() : refresh(),
             selectTab: (tab) => { state.menuOpen = false; state.tab = tab; },
             resetFilters: () => { state.search = ''; state.level = 'all'; },
@@ -216,5 +232,5 @@
             closeMenuOnBlur: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) state.menuOpen = false; }
         });
     };
-    return { create, safeMessage, buildRows, levelLabel };
+    return { create, safeMessage, buildRows, flattenRows, levelLabel };
 });
