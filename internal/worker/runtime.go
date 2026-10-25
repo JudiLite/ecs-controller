@@ -99,8 +99,6 @@ func (w *Worker) InventoryMonitor(ctx context.Context, checkInterval time.Durati
 }
 
 func (w *Worker) runInventorySync(ctx context.Context, now time.Time) bool {
-	w.Store.Operations.RLock()
-	defer w.Store.Operations.RUnlock()
 	intervalSeconds, _ := strconv.ParseInt(w.Store.GetSetting("inventory_sync_interval", "3600"), 10, 64)
 	if intervalSeconds < 1800 || intervalSeconds > 86400 {
 		intervalSeconds = 3600
