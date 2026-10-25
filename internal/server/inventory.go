@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/JudiLite/ecs-controller/internal/app"
-	"github.com/JudiLite/ecs-controller/internal/cloud"
+	"github.com/JudiLite/ecs-controller/internal/inventory"
 )
 
 func (s *Server) syncGroup(groupKey string) (int, error) {
@@ -87,140 +87,8 @@ func (s *Server) syncGroupContext(ctx context.Context, groupKey string, confirmM
 	if client == nil {
 		return 0, fmt.Errorf("云客户端未配置")
 	}
-	instances, err := client.DescribeInstances(ctx, group.RegionID)
-	if err != nil {
-		return 0, err
-	}
-	accounts, err := s.Store.LoadAccounts(true)
-	if err != nil {
-		return 0, err
-	}
-	publicNetworks := map[string]cloud.InstancePublicNetwork{}
-	publicNetworkSynced := false
-	if networkClient, ok := client.(cloud.InstancePublicNetworkClient); ok {
-		instanceIDs := make([]string, 0, len(instances))
-		for _, instance := range instances {
-			instanceIDs = append(instanceIDs, instance.ID)
-		}
-		if networks, networkErr := networkClient.DescribeInstancePublicNetworks(ctx, group.RegionID, instanceIDs); networkErr != nil {
-			s.Log.Printf("同步实例公网带宽失败（账号组 %s）: %v", group.GroupKey, networkErr)
-		} else {
-			publicNetworks = networks
-			publicNetworkSynced = true
-		}
-	}
-	remoteIDs := make(map[string]bool, len(instances))
-	count := 0
-	for _, instance := range instances {
-		remoteIDs[instance.ID] = true
-		count++
-		var existing *app.Account
-		for i := range accounts {
-			sameGroup := accounts[i].GroupKey == group.GroupKey || (accounts[i].AccessKeyID == group.AccessKeyID && accounts[i].RegionID == group.RegionID)
-			if sameGroup && accounts[i].InstanceID == instance.ID {
-				existing = &accounts[i]
-				break
-			}
-		}
-		if existing != nil {
-			_ = s.Store.SetSetting(inventoryMissingKey(existing.ID), "0")
-		}
-		if existing != nil && existing.InstanceStatus == "Releasing" {
-			// A user-triggered release must not be resurrected while the remote
-			// ECS record is still visible. Other hidden rows may be stale local
-			// state and are restored by an explicit manual sync below.
-			continue
-		}
-		if existing != nil && existing.IsDeleted != 0 && confirmMissing {
-			// Background reconciliation must not undo a deliberate local hide.
-			// The manual sync path is allowed to repair a stale hidden row when
-			// DescribeInstances proves that the cloud instance still exists.
-			continue
-		}
-		a := app.Account{AccessKeyID: group.AccessKeyID, AccessKeySecret: group.AccessKeySecret, RegionID: group.RegionID, InstanceID: instance.ID, MaxTraffic: group.MaxTraffic, Remark: group.Remark, SiteType: group.SiteType, GroupKey: group.GroupKey, InstanceName: instance.Name, InstanceType: instance.InstanceType, InternetBandwidth: instance.InternetBandwidth, PublicIP: instance.PublicIP, PublicIPMode: "ecs_public_ip", PrivateIP: instance.PrivateIP, CPU: instance.CPU, Memory: instance.Memory, OSName: instance.OSName, InstanceStatus: instance.Status, HealthStatus: "ok", UpdatedAt: time.Now().Unix()}
-		if network, hasEIP := publicNetworks[instance.ID]; hasEIP {
-			a.PublicIPMode = "eip"
-			a.EIPAllocationID, a.EIPAddress = network.AllocationID, network.Address
-			if network.Address != "" {
-				a.PublicIP = network.Address
-			}
-			if network.Bandwidth > 0 {
-				a.InternetBandwidth = network.Bandwidth
-			}
-		}
-		if existing != nil {
-			// Keep local runtime state (traffic, schedules, protection flags and
-			// managed-network metadata) while refreshing cloud-owned fields.
-			a.ID = existing.ID
-			a.TrafficUsed, a.TrafficBillingMonth = existing.TrafficUsed, existing.TrafficBillingMonth
-			a.LastKeepAliveAt, a.AutoStartBlocked = existing.LastKeepAliveAt, existing.AutoStartBlocked
-			a.ScheduleLastStartDate, a.ScheduleLastStopDate = existing.ScheduleLastStartDate, existing.ScheduleLastStopDate
-			a.ScheduleStopActive, a.ScheduleBlockedByTraffic = existing.ScheduleStopActive, existing.ScheduleBlockedByTraffic
-			a.ScheduleEnabled, a.ScheduleStartEnabled, a.ScheduleStopEnabled = existing.ScheduleEnabled, existing.ScheduleStartEnabled, existing.ScheduleStopEnabled
-			a.StartTime, a.StopTime = existing.StartTime, existing.StopTime
-			a.StoppedMode = existing.StoppedMode
-			a.TrafficAPIStatus, a.TrafficAPIMessage = existing.TrafficAPIStatus, existing.TrafficAPIMessage
-			a.ProtectionSuspended, a.ProtectionSuspendReason, a.ProtectionNotifiedAt = existing.ProtectionSuspended, existing.ProtectionSuspendReason, existing.ProtectionNotifiedAt
-			if network, hasEIP := publicNetworks[instance.ID]; hasEIP {
-				// Only controller-created EIPs may be replaced from the UI.
-				a.EIPManaged = existing.EIPManaged && existing.EIPAllocationID == network.AllocationID
-			} else if !publicNetworkSynced {
-				// A failed EIP lookup must not erase known network metadata.
-				a.EIPAllocationID, a.EIPAddress, a.EIPManaged = existing.EIPAllocationID, existing.EIPAddress, existing.EIPManaged
-				a.PublicIPMode = existing.PublicIPMode
-				if a.InternetBandwidth < 1 {
-					a.InternetBandwidth = existing.InternetBandwidth
-				}
-			}
-			if a.PublicIPMode == "eip" && a.EIPAddress != "" {
-				a.PublicIP = a.EIPAddress
-			}
-		}
-		if err := s.Store.UpsertAccount(a); err != nil {
-			return count, err
-		}
-	}
-	for _, account := range accounts {
-		if account.InstanceID == "" || account.IsDeleted != 0 || remoteIDs[account.InstanceID] {
-			continue
-		}
-		sameGroup := account.GroupKey == group.GroupKey || (account.AccessKeyID == group.AccessKeyID && account.RegionID == group.RegionID)
-		if !sameGroup {
-			continue
-		}
-		missingKey := inventoryMissingKey(account.ID)
-		if confirmMissing {
-			missingCount, _ := strconv.Atoi(s.Store.GetSetting(missingKey, "0"))
-			missingCount++
-			if err := s.Store.SetSetting(missingKey, strconv.Itoa(missingCount)); err != nil {
-				return count, err
-			}
-			if missingCount < 2 {
-				s.Store.AddLog("warning", "账号清单同步首次未发现实例，等待下次确认: "+account.InstanceID)
-				continue
-			}
-		}
-		_ = s.Store.SetSetting(missingKey, "0")
-		if account.InstanceStatus == "ReleaseFailed" {
-			// A failed release is safe to forget only after a successful,
-			// complete DescribeInstances response confirms this exact instance ID
-			// no longer exists. Never use a reused IP address for this decision.
-			if removed, removeErr := s.Store.PhysicallyDeleteReleaseFailed(account.ID); removeErr != nil {
-				return count, removeErr
-			} else if removed {
-				s.Store.AddLog("info", "已清理云端不存在的释放失败残留记录: "+account.InstanceID)
-			}
-			continue
-		}
-		// The instance disappeared outside this controller. Hide the stale row
-		// immediately and atomically queue EIP/DDNS/group cleanup. A terminal
-		// cleanup failure restores it as ReleaseFailed for manual intervention.
-		if err := s.Store.QueueMissingInstanceCleanup(account.ID, randomToken(16)); err != nil {
-			return count, err
-		}
-		s.Store.AddLog("info", "已同步移除云端不存在的实例: "+account.InstanceID)
-	}
-	return count, nil
+	result, err := inventory.SyncGroup(ctx, s.Store, *group, client, time.Now(), s.Log.Printf, confirmMissing)
+	return result.RemoteCount, err
 }
 
 func inventoryMissingKey(accountID int64) string {

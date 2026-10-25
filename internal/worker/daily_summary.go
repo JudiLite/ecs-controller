@@ -90,7 +90,7 @@ func (w *Worker) dailyTrafficEvent(ctx context.Context, reportDay time.Time) (no
 	dayStart := time.Date(reportDay.Year(), reportDay.Month(), reportDay.Day(), 0, 0, 0, 0, reportDay.Location())
 	dayEnd := dayStart.AddDate(0, 0, 1)
 	for _, account := range accounts {
-		if account.InstanceID == "" || account.TrafficAPIStatus == "fallback_cdt" {
+		if account.InstanceID == "" || account.CloudPresence == "missing" || account.TrafficAPIStatus == "fallback_cdt" {
 			continue
 		}
 		if account.TrafficAPIStatus == "error" {

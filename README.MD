@@ -1,10 +1,36 @@
 # ECS 控制台
 
-当前稳定版本：`v1.1.0`
+当前稳定版本：`v1.1.1`
+
+`main` 分支已适配上游 [Kori1c/ecs-controller](https://github.com/Kori1c/ecs-controller) 的 `v1.17.9`（提交 `9440345`），并保留本项目 `v1.1.1` 的功能。GitHub 最新稳定发行版仍为 `v1.1.1`；下述“主分支新增与优化”需要从源码构建使用。
 
 一个简单的阿里云 ECS 管理面板，可以查看实例状态和流量，并在流量达到阈值时自动关机，避免产生额外费用。支持精选公共镜像与自定义镜像、多实例轮转与 DDNS 自动切换、Telegram Bot 双向交互控制及费用分析。
 
 > 阿里云流量数据可能存在延迟，自动关机不能保证绝对不会产生费用。
+
+## 主分支新增与优化
+
+- **账号权限检查**：导入或检查账号时展示权限状态，便于定位无法读取实例、流量或费用的原因。
+- **实例清单同步**：接入上游的云端存在状态与资源信息同步；保留两次后台确认、托管 EIP 清理重试、定时策略和轮转关系，避免云端已删除实例继续出现在可操作列表中。
+- **日志查询**：支持搜索、筛选、分页和新日志提示；保留独立的操作审计页签。
+- **加密备份恢复**：在“系统设置 → 备份恢复”下载或恢复 `.ecsbkp` 文件，密码至少 8 个字符。备份包含账号、凭据、配置、流量历史、审计记录、轮转状态、Passkey 和 Logo；恢复会覆盖现有数据并退出登录，后台任务与临时会话会清空。跨安装恢复后仍使用本机密钥保存凭据，重启后也能读取。
+- **DDNS 保留并优化**：Cloudflare、DNSPod 和 AliDNS 均可继续使用。同一天 IP / EIP 发生变化也会同步；重叠轮转时按计划选取接班实例。已成功且未变化的记录会复用结果，每 6 小时重新确认；失败后间隔至少 60 秒重试。轮转分组提供“立即同步 DDNS”和最近结果，手动同步可立即重试。只发布正在运行实例的有效公网 IPv4 地址。
+- **全局品牌与费用显示**：支持自定义页面名称，完善费用格式显示，保留原有管理员名称、Logo、通知与库存同步配置。
+
+原有实例创建、镜像选择、价格预估、公网 IP / EIP 更换、共享带宽、流量保护、每日统计、Telegram 双向操作、后台任务、签名更新与部署脚本继续保留。
+
+### 从主分支源码运行
+
+准备 Go 1.26 或更高版本，在仓库根目录构建并运行；根目录中的 `template.html` 和 `static/` 需要随程序保留：
+
+```bash
+git clone https://github.com/JudiLite/ecs-controller.git
+cd ecs-controller
+go build -o ecs-controller ./cmd/ecs-controller
+ECS_DATA_DIR=./data ECS_HTTP_ADDR=127.0.0.1:43211 ./ecs-controller
+```
+
+普通安装与网页在线更新仍使用稳定发行版。主分支适配提交只运行验证，不自动发布新版本；维护者可手动触发发布流程，或提交不含 `[skip release]` 的更新后发布。
 
 ## 部署
 
@@ -100,7 +126,7 @@ sudo ecs logs
 
 ### GitHub Release
 
-本项目会通过 GitHub Actions 在 `main` 分支更新后自动构建并发布 Linux AMD64、Linux ARM64、Windows AMD64 和 Windows ARM64 安装包。部署脚本默认从本项目的 [GitHub Releases](https://github.com/JudiLite/ecs-controller/releases) 下载，不依赖上游仓库的 Release。
+本项目通过 GitHub Actions 验证 `main` 分支更新，再构建并发布 Linux AMD64、Linux ARM64、Windows AMD64 和 Windows ARM64 安装包。提交信息含 `[skip release]` 时仅验证，不发布；当前这次上游适配使用此方式保留 `v1.1.1` 稳定版。部署脚本默认从本项目的 [GitHub Releases](https://github.com/JudiLite/ecs-controller/releases) 下载，不依赖上游仓库的 Release。
 
 发布版本采用 GitHub Release 管理。稳定版本保留经过完整验证的里程碑版本；日常小修复会合并到下一次正式版本中，避免更新列表出现大量碎片化版本。
 
@@ -209,7 +235,7 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
 
 进入“关于 → 版本中心”，点击检查更新即可。
 
-`v1.1.0` 包含 Telegram 公网 IP 管理、共享带宽选择、旧 EIP 自动清理与后台重试，以及实例标识显示优化。
+`v1.1.1` 保留 Telegram 公网 IP 管理、共享带宽选择、旧 EIP 自动清理与后台重试，以及实例标识显示优化。
 
 只有 GitHub Release 的对应平台安装包、SHA256 校验文件和 Ed25519 签名全部准备好时才会更新。当前已安装程序使用内置公钥验证发布签名，再校验安装包 SHA256；任一校验失败都不会切换版本。原生部署由后台更新服务下载、校验、切换版本并重启控制台；Docker 部署由更新容器下载、校验、替换应用文件并重建容器。两种方式都会进行健康检查，失败时恢复更新前版本。更新不会删除账号、配置和流量数据。
 
@@ -255,5 +281,5 @@ sudo ecs-uninstall --purge
 
 - 二次开发项目：https://github.com/JudiLite/ecs-controller
 - 问题反馈：https://github.com/JudiLite/ecs-controller/issues
-- 上游项目（功能基础与部分代码来源）：https://github.com/elunez/ecs-controller
+- 上游项目（功能基础与部分代码来源）：https://github.com/Kori1c/ecs-controller
 - 许可证：[MIT](./LICENSE)

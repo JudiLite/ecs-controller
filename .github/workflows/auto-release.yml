@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 concurrency:
   group: ecs-controller-main-release
@@ -13,8 +14,27 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test Go packages
+        run: go test ./...
+      - name: Check Go code
+        run: go vet ./...
+      - name: Test browser helpers
+        run: node --test tests/*.test.cjs
+
   release:
-    if: github.ref == 'refs/heads/main'
+    needs: validate
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip release]'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main

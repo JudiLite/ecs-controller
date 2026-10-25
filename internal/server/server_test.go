@@ -1087,6 +1087,19 @@ func (f *fakeSyncClient) DescribeInstances(context.Context, string) ([]cloud.Ins
 	return f.instances, f.describeErr
 }
 
+func (f *fakeSyncClient) DescribeInstance(_ context.Context, _ string, id string) (*cloud.Instance, error) {
+	for _, instance := range f.instances {
+		if instance.ID == id {
+			copy := instance
+			return &copy, nil
+		}
+	}
+	if f.describeErr != nil {
+		return nil, f.describeErr
+	}
+	return nil, &cloud.APIError{Code: "InvalidInstanceId.NotFound", HTTPStatus: 404}
+}
+
 func (f *fakeSyncClient) DescribeInstancePublicNetworks(context.Context, string, []string) (map[string]cloud.InstancePublicNetwork, error) {
 	return f.publicNetworks, f.publicNetworkErr
 }
@@ -1326,7 +1339,7 @@ func TestEnrichBillingDetailsAddsCurrentResourceWithoutChangingBillValues(t *tes
 	}
 }
 
-func TestSyncGroupPreservesReleaseAndQueuesMissingInstances(t *testing.T) {
+func TestSyncGroupPreservesReleaseAndPurgesMissingInstances(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -1377,8 +1390,8 @@ func TestSyncGroupPreservesReleaseAndQueuesMissingInstances(t *testing.T) {
 		t.Fatalf("missing instance was not hidden and queued: %#v", missing)
 	}
 	job, err := st.ClaimJob(time.Minute)
-	if err != nil || job == nil || job.EntityKey != fmt.Sprint(missing.ID) {
-		t.Fatalf("missing cleanup job: %#v %v", job, err)
+	if err != nil || job == nil || job.Kind != "delete_instance" {
+		t.Fatalf("external deletion did not queue resource cleanup: %#v %v", job, err)
 	}
 }
 
@@ -1501,14 +1514,10 @@ func TestSyncGroupRemovesCloudMissingReleaseFailedRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var old *app.Account
-	for i := range all {
-		if all[i].InstanceID == "i-old" {
-			old = &all[i]
+	for _, account := range all {
+		if account.InstanceID == "i-old" {
+			t.Fatalf("release-failed orphan remained in the database: %#v", account)
 		}
-	}
-	if old == nil || old.IsDeleted != 2 || old.InstanceStatus != "Released" {
-		t.Fatalf("release-failed orphan was not retired: %#v", old)
 	}
 	if job, err := st.ClaimJob(time.Second); err != nil || job != nil {
 		t.Fatalf("orphan cleanup unexpectedly queued another release job: job=%#v err=%v", job, err)

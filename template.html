@@ -998,75 +998,136 @@
             color: var(--success-text);
         }
 
-        .test-result-card {
-            margin-top: 18px;
-            padding: 16px;
-            border-radius: 18px;
-            border: 1px solid var(--line);
-            background: color-mix(in srgb, var(--panel-strong) 72%, var(--panel));
-            color: var(--text);
-            display: grid;
-            gap: 10px;
+        .account-test-overlay {
+            z-index: 80;
         }
 
-        .test-result-card.warning {
-            border-color: var(--danger-border);
-            background: color-mix(in srgb, var(--danger-bg) 78%, var(--panel));
+        .account-modal.account-test-modal {
+            width: min(680px, 100%);
+            max-height: calc(100dvh - 32px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
-        .test-result-card.success {
-            border-color: var(--success-border);
-            background: color-mix(in srgb, var(--success-bg) 78%, var(--panel));
+        .account-test-modal .section-head {
+            flex: 0 0 auto;
         }
 
-        .test-result-line {
+        .account-test-body {
+            min-height: 0;
+            overflow-y: auto;
+            margin-top: 16px;
+            padding-right: 4px;
+            scrollbar-gutter: stable;
+        }
+
+        .account-test-summary {
+            margin-bottom: 16px;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--line);
             display: flex;
             align-items: flex-start;
             justify-content: space-between;
             gap: 12px;
+        }
+
+        .account-test-summary p {
             font-size: 13px;
-        }
-
-        .test-result-line strong {
-            color: var(--text);
-        }
-
-        .test-result-title {
-            color: var(--text);
-        }
-
-        .test-result-message {
-            color: var(--muted);
-        }
-
-        .test-result-line > span {
-            color: var(--muted);
-            text-align: right;
+            line-height: 1.6;
             overflow-wrap: anywhere;
         }
 
-        .test-result-line > span.warning-text {
-            color: var(--danger-text);
+        .account-test-meta,
+        .permission-message,
+        .permission-policy,
+        .account-test-note {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.6;
+            overflow-wrap: anywhere;
         }
 
-        .test-result-badge {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 72px;
-            padding: 5px 10px;
-            border-radius: 999px;
+        .permission-group + .permission-group {
+            margin-top: 20px;
+        }
+
+        .permission-group h3 {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .permission-row {
+            padding: 12px 0;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .permission-row__header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .permission-row__header strong {
+            min-width: 0;
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+
+        .permission-message {
+            margin-top: 4px;
+        }
+
+        .permission-policy {
+            display: block;
+            margin-top: 4px;
+            color: var(--accent);
+        }
+
+        .permission-policy:hover {
+            text-decoration: underline;
+        }
+
+        .permission-status {
+            flex: 0 0 auto;
+            padding: 3px 8px;
+            border-radius: 6px;
             font-size: 12px;
             font-weight: 700;
-            background: var(--success-bg);
-            color: var(--success-text);
-            border: 1px solid var(--success-border);
+            background: var(--panel-strong);
+            color: var(--muted);
         }
 
-        .test-result-badge.warning {
+        .permission-status.ok {
+            background: var(--success-bg);
+            color: var(--success-text);
+        }
+
+        .permission-status.missing,
+        .permission-status.error {
             background: var(--danger-bg);
             color: var(--danger-text);
-            border-color: var(--danger-border);
+        }
+
+        .permission-status.unavailable,
+        .permission-status.warning {
+            background: var(--warning-bg);
+            color: var(--warning-text);
+        }
+
+        .account-test-note {
+            margin-top: 16px;
+        }
+
+        .account-test-footer {
+            display: flex;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding-top: 16px;
+            flex: 0 0 auto;
         }
 
         .chip {
@@ -1861,21 +1922,61 @@
             z-index: 70;
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 10px 12px 10px 16px;
-            border: 1px solid rgba(148, 163, 184, 0.22);
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.92);
-            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
-            backdrop-filter: blur(18px);
-            animation: panel-fade-up .18s ease both;
+            gap: 10px;
+            max-width: min(400px, calc(100vw - 32px));
+            padding: 8px 8px 8px 14px;
+            border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+            border-radius: 18px;
+            background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+            box-shadow:
+                0 18px 42px color-mix(in srgb, var(--canvas) 68%, transparent),
+                0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
+            backdrop-filter: blur(18px) saturate(135%);
+            isolation: isolate;
         }
 
         .settings-save-float__hint {
+            display: inline-flex;
+            align-items: center;
+            min-width: 0;
+            gap: 8px;
+            color: var(--text);
             font-size: 0.78rem;
-            font-weight: 700;
-            color: #64748b;
+            font-weight: 650;
+            line-height: 1.25;
+            letter-spacing: 0.01em;
             white-space: nowrap;
+        }
+
+        .settings-save-float__hint::before {
+            width: 7px;
+            height: 7px;
+            flex: 0 0 7px;
+            border-radius: 50%;
+            background: var(--warning);
+            box-shadow: 0 0 0 4px color-mix(in srgb, var(--warning) 16%, transparent);
+            content: "";
+        }
+
+        .settings-save-float > .solid-button {
+            min-height: 38px;
+            flex: 0 0 auto;
+            padding: 0.52rem 0.82rem;
+            border-radius: 12px;
+            font-size: 0.76rem;
+            white-space: nowrap;
+            box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 24%, transparent), 0 6px 14px color-mix(in srgb, var(--accent-strong) 22%, transparent);
+        }
+
+        .settings-save-enter-active,
+        .settings-save-leave-active {
+            transition: opacity .2s ease, transform .24s cubic-bezier(.22, .61, .36, 1);
+        }
+
+        .settings-save-enter-from,
+        .settings-save-leave-to {
+            opacity: 0;
+            transform: translateY(10px) scale(.98);
         }
 
         .account-card-grid {
@@ -3090,95 +3191,204 @@
         }
 
         .settings-layout {
-            display: block;
+            display: grid;
+            grid-template-columns: 176px minmax(0, 1fr);
+            align-items: start;
+            gap: 28px;
             margin-top: 24px;
         }
 
         .settings-nav {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 10px;
+            display: block;
+            padding-right: 18px;
+            border-right: 1px solid var(--line);
+        }
+
+        .settings-nav__group + .settings-nav__group {
+            margin-top: 24px;
+        }
+
+        .settings-nav__group-title {
+            margin: 0 0 8px;
+            padding-left: 10px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0;
         }
 
         .settings-nav__button {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 10px;
             width: 100%;
-            min-height: 64px;
-            border: 1px solid transparent;
-            border-radius: 16px;
-            padding: 11px 13px;
-            background: color-mix(in srgb, var(--panel) 58%, transparent);
+            min-height: 40px;
+            padding: 9px 10px;
+            border: 0;
+            border-left: 3px solid transparent;
+            border-radius: 0 6px 6px 0;
             color: var(--muted);
             cursor: pointer;
             text-align: left;
-            transition: background .18s ease, border-color .18s ease, color .18s ease, transform .18s ease;
+            font-size: 13px;
+            transition: background .15s ease, color .15s ease;
+        }
+
+        .settings-nav__index {
+            flex: 0 0 22px;
+            padding-top: 2px;
+            font-size: 11px;
+        }
+
+        .settings-nav__label,
+        .settings-nav__hint {
+            display: block;
+        }
+
+        .settings-nav__label {
+            font-weight: 600;
+        }
+
+        .settings-nav__hint {
+            margin-top: 3px;
+            font-size: 11px;
+            line-height: 1.5;
         }
 
         .settings-nav__button:hover {
-            border-color: var(--line);
-            background: color-mix(in srgb, var(--panel) 84%, transparent);
+            background: var(--hover-bg);
             color: var(--text);
-            transform: translateY(-1px);
         }
 
         .settings-nav__button.active {
-            border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+            border-left-color: var(--accent);
             background: var(--accent-light);
             color: var(--text);
         }
 
-        .settings-nav__index {
-            display: grid;
-            place-items: center;
-            width: 28px;
-            height: 28px;
-            flex: 0 0 28px;
-            border: 1px solid var(--line);
-            border-radius: 9px;
-            background: var(--panel);
-            color: var(--accent);
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-            font-size: 0.68rem;
-            font-weight: 800;
-        }
-
-        .settings-nav__button.active .settings-nav__index {
-            border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
-            background: var(--accent);
-            color: #fff;
-        }
-
-        .settings-nav__label {
-            display: block;
-            font-size: 0.86rem;
-            font-weight: 800;
-            line-height: 1.2;
-        }
-
-        .settings-nav__hint {
-            display: block;
-            margin-top: 4px;
-            color: var(--muted);
-            font-size: 0.7rem;
-            line-height: 1.4;
+        .settings-category-mobile {
+            display: none;
         }
 
         .settings-workspace {
             min-width: 0;
-            margin-top: 12px;
+            margin-top: 0;
         }
 
-        /* Keep the settings form dense without changing the larger dashboard cards. */
+        .settings-section__head {
+            margin-bottom: 20px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .settings-section__head h3 {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .settings-fields {
+            display: grid;
+            gap: 20px;
+        }
+
+        .settings-field > label,
+        .settings-field > .field-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .settings-hint,
+        .settings-warning {
+            margin-top: 8px;
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--muted);
+            overflow-wrap: anywhere;
+        }
+
+        .settings-warning {
+            color: var(--warning-text);
+        }
+
+        .settings-subsection + .settings-subsection {
+            padding-top: 20px;
+            border-top: 1px solid var(--line);
+        }
+
+        .settings-subsection h4 {
+            margin-bottom: 10px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .settings-workspace .settings-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            min-height: 52px;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--line);
+            font-size: 13px;
+        }
+
+        .settings-toggle > span:first-child {
+            min-width: 0;
+        }
+
+        .settings-toggle .switch-control {
+            flex: 0 0 auto;
+        }
+
+        .settings-toggle .settings-hint {
+            display: block;
+            margin-top: 4px;
+        }
+
+        .settings-passkey-row,
+        .settings-backup-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .settings-backup-actions {
+            justify-content: flex-start;
+        }
+
+        .settings-workspace .brand-logo-preview {
+            width: 52px;
+            height: 52px;
+            border-radius: 8px;
+        }
+
+        @media (max-width: 1023px) {
+            .settings-layout > .settings-nav {
+                display: none;
+            }
+
+            .settings-category-mobile {
+                display: block;
+            }
+        }
+
+        /* Keep settings forms unframed without changing dashboard cards. */
         .settings-workspace .settings-grid {
-            margin-top: 14px;
-            gap: 14px;
+            margin-top: 0;
+            gap: 0;
         }
 
         .settings-workspace .metric-card {
-            border-radius: 12px;
-            padding: 1rem;
+            border: 0;
+            border-radius: 0;
+            padding: 0;
+            background: transparent;
+            box-shadow: none;
         }
 
         .settings-workspace .metric-card.space-y-4 > :not([hidden]) ~ :not([hidden]) {
@@ -3302,6 +3512,11 @@
         .rotation-group-table-row.summary-table-head > div {
             white-space: nowrap;
         }
+
+        .ddns-sync-status { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+        .ddns-sync-status.has-error { color: #b42318; }
+        .ddns-sync-button { min-height: 44px; margin-top: 6px; }
+        .ddns-mobile-sync { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
 
         .rotation-group-table-members {
             min-width: 0;
@@ -4269,9 +4484,160 @@
             font-size: 0.74rem;
         }
 
-        .log-card {
-            border-radius: 14px !important;
-            padding: 1rem !important;
+        .logs-panel { --logs-columns: 176px 64px minmax(0, 1fr) 100px; }
+        .logs-panel .section-head { align-items: center; flex-wrap: wrap; gap: 16px; }
+        .logs-panel .section-title { letter-spacing: 0; }
+        .logs-header-actions, .logs-auto, .logs-toolbar, .logs-filters, .logs-merge, .logs-status, .logs-footer, .log-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .logs-header-actions { flex-wrap: wrap; gap: 8px; }
+        .logs-header-actions .compact-button, .logs-footer .compact-button { min-height: 36px; font-size: 13px; border-radius: 8px; padding: 7px 10px !important; }
+        .logs-header-actions .logs-refresh { min-width: 100px; }
+        .logs-refresh.has-new-logs { color: var(--accent-strong); border-color: var(--accent); background: var(--accent-light); }
+        .logs-auto { font-size: 13px; white-space: nowrap; gap: 8px; }
+        .logs-auto .switch-control { flex: 0 0 auto; }
+        .logs-menu { position: relative; }
+        .logs-menu-popup {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 6px);
+            z-index: 30;
+            min-width: 156px;
+            padding: 4px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, .12);
+        }
+        .logs-menu-popup button { width: 100%; padding: 10px; text-align: left; color: var(--danger-text); font-size: 13px; border-radius: 6px; }
+        .logs-menu-popup button:hover { background: var(--danger-bg); }
+        .logs-toolbar { margin-top: 16px; flex-wrap: wrap; gap: 16px; }
+        .logs-tabs {
+            display: grid;
+            grid-template-columns: repeat(2, 96px);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 2px;
+            background: var(--control-bg);
+            flex: 0 0 auto;
+        }
+        .logs-tabs button { min-height: 30px; font-size: 13px; border-radius: 6px; color: var(--muted); }
+        .logs-tabs button.active { background: var(--accent-light); color: var(--accent-strong); font-weight: 700; }
+        .logs-filters { flex: 1 1 320px; justify-content: flex-start; min-width: 0; }
+        .logs-filters .glass-input { height: 36px; min-height: 36px; padding: 7px 10px; font-size: 14px; border-radius: 10px; }
+        .logs-filters input[type="search"] { min-width: 0; flex: 1 1 180px; max-width: 480px; }
+        .logs-filters .logs-level { flex: 0 0 110px; width: 110px; }
+        .logs-merge { flex: 0 0 auto; min-height: 36px; font-size: 13px; white-space: nowrap; gap: 8px; }
+        .logs-merge input { width: 15px; height: 15px; accent-color: var(--accent); }
+        .logs-status { justify-content: space-between; flex-wrap: wrap; min-height: 44px; padding: 10px 0; font-size: 12px; color: var(--muted); }
+        .logs-stamp { font-variant-numeric: tabular-nums; }
+        .logs-order { font-size: 12px; }
+        .logs-error { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; color: var(--danger-text); font-size: 14px; padding: 10px 0; overflow-wrap: anywhere; }
+        .logs-poll-error { color: var(--warning-text); font-size: 12px; padding-bottom: 10px; }
+        .logs-scroll {
+            max-height: min(54vh, max(180px, calc(100dvh - 370px)), 640px);
+            overflow: auto;
+            scrollbar-gutter: auto;
+            padding-right: 0;
+            border-top: 1px solid var(--line);
+            border-bottom: 1px solid var(--line);
+        }
+        .logs-table-head, .log-row { display: grid; grid-template-columns: var(--logs-columns); gap: 12px; align-items: start; padding: 11px 12px; border-left: 2px solid transparent; }
+        .logs-table-head { position: sticky; top: 0; z-index: 1; background: color-mix(in srgb, var(--panel-strong) 65%, var(--panel)); color: var(--muted); font-size: 12px; font-weight: 600; }
+        .logs-table-head > :last-child { text-align: right; }
+        .log-row { min-height: 46px; border-bottom: 1px solid var(--line); font-size: 14px; }
+        .log-row:last-child { border-bottom: 0; }
+        .log-row:hover { background: var(--hover-bg); }
+        .log-row.error { border-left-color: var(--danger); }
+        .log-row.warning { border-left-color: var(--warning); }
+        .log-time { min-width: 0; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 22px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+        .log-time > span { display: block; }
+        .log-time-range { font-size: 12px; }
+        .log-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 18px; color: var(--muted); background: var(--panel-strong); white-space: nowrap; }
+        .log-badge.error { color: var(--danger-text); background: var(--danger-bg); }
+        .log-badge.warning { color: var(--warning-text); background: var(--warning-bg); }
+        .log-content { min-width: 0; }
+        .log-message { margin: 0; white-space: pre-wrap; line-height: 22px; overflow-wrap: anywhere; }
+        .log-message.clamped { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .log-actions { justify-content: flex-end; gap: 12px; min-height: 22px; }
+        .log-text-action { padding: 1px 0; font-size: 13px; line-height: 20px; color: var(--accent); background: transparent; border: 0; white-space: nowrap; }
+        .log-text-action:hover { text-decoration: underline; }
+        .log-group-meta { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 20px; }
+        .log-summary-row.is-expanded { border-left-color: var(--accent); background: var(--control-bg); }
+        .log-summary-row.is-expanded .log-message { font-weight: 600; }
+        .log-detail-row { background: color-mix(in srgb, var(--control-bg) 35%, transparent); }
+        .logs-empty { padding: 40px 12px; text-align: center; color: var(--muted); font-size: 14px; }
+        .logs-empty .log-text-action { margin-left: 8px; }
+        .logs-footer { justify-content: space-between; flex-wrap: wrap; min-height: 48px; padding-top: 12px; color: var(--muted); font-size: 12px; }
+        .logs-scroll { position: relative; }
+        .logs-table-head { z-index: 2; }
+        .logs-tabs { position: relative; }
+        .logs-tabs::before {
+            content: '';
+            position: absolute;
+            left: 2px;
+            top: 2px;
+            bottom: 2px;
+            width: 96px;
+            border-radius: 6px;
+            background: var(--accent-light);
+            pointer-events: none;
+            transition: transform .18s cubic-bezier(.22, .61, .36, 1);
+        }
+        .logs-tabs.is-heartbeat::before { transform: translateX(96px); }
+        .logs-tabs button { position: relative; z-index: 1; transition: color .14s ease; }
+        .logs-tabs button.active { background: transparent; }
+        .log-row { transition: background-color .14s ease, border-color .14s ease; }
+        .log-text-action { transition: color .14s ease, opacity .14s ease; }
+        .logs-menu-popup button { transition: background-color .14s ease, color .14s ease; }
+        .logs-menu-popup { transform-origin: top right; }
+        .logs-menu-enter-active { transition: opacity .15s ease, transform .15s ease; }
+        .logs-menu-leave-active { transition: opacity .1s ease, transform .1s ease; pointer-events: none; }
+        .logs-menu-enter-from, .logs-menu-leave-to { opacity: 0; transform: translateY(-4px) scale(.98); }
+        .logs-spinner {
+            width: 12px;
+            height: 12px;
+            flex: 0 0 12px;
+            border: 2px solid var(--line);
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: logs-spin .75s linear infinite;
+        }
+        .logs-load-more { min-width: 88px; }
+        .logs-refresh[aria-busy="true"], .logs-load-more[aria-busy="true"] { opacity: 1; cursor: wait; }
+        @keyframes logs-spin { to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) {
+            .logs-spinner { animation: none; }
+            .logs-panel .ghost-button:hover, .logs-panel .ghost-button:active { transform: none; }
+        }
+        .logs-panel button:focus-visible, .logs-scroll:focus-visible, .logs-filters select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        @media (hover: hover) and (pointer: fine) {
+            .logs-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 25%, var(--line)) transparent; }
+            .logs-scroll:hover, .logs-scroll:focus-within { scrollbar-color: color-mix(in srgb, var(--muted) 55%, var(--line)) transparent; }
+            .logs-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+            .logs-scroll::-webkit-scrollbar-track, .logs-scroll::-webkit-scrollbar-corner { background: transparent; }
+            .logs-scroll::-webkit-scrollbar-thumb { border: 1px solid transparent; border-radius: 6px; background: color-mix(in srgb, var(--muted) 25%, var(--line)); background-clip: padding-box; }
+            .logs-scroll:hover::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--muted) 55%, var(--line)); }
+        }
+        @media (max-width: 700px) {
+            .logs-panel .section-head { gap: 12px; }
+            .logs-header-actions { width: 100%; gap: 8px; }
+            .logs-header-actions .logs-refresh { min-width: 88px; }
+            .logs-toolbar { align-items: stretch; gap: 12px; }
+            .logs-filters { flex-basis: 100%; }
+            .logs-filters input[type="search"] { max-width: none; }
+            .logs-table-head { display: none; }
+            .log-row { grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; padding: 12px 8px; }
+            .log-time { grid-column: 1; grid-row: 1; }
+            .log-type { grid-column: 2; grid-row: 1; }
+            .log-actions { grid-column: 3; grid-row: 1; gap: 10px; }
+            .log-content { grid-column: 1 / -1; grid-row: 2; }
+            .logs-scroll { max-height: max(160px, min(480px, calc(100dvh - 500px))); }
+        }
+        @media (max-width: 360px) {
+            .logs-scroll { max-height: max(160px, calc(100dvh - 530px)); }
         }
 
 		.audit-toolbar {
@@ -4585,6 +4951,14 @@
                 padding: 14px 14px 108px;
             }
 
+            .settings-save-float {
+                left: 14px;
+                right: 14px;
+                bottom: calc(104px + env(safe-area-inset-bottom));
+                max-width: none;
+                justify-content: space-between;
+            }
+
             .mobile-bottom-nav {
                 position: fixed;
                 left: 14px;
@@ -4592,9 +4966,9 @@
                 bottom: 14px;
                 z-index: 45;
                 display: grid;
-                grid-template-columns: repeat(6, minmax(0, 1fr));
-                gap: 4px;
-                padding: 10px;
+                grid-template-columns: repeat(7, minmax(0, 1fr));
+                gap: 2px;
+                padding: 8px;
                 border-radius: 24px;
                 background: color-mix(in srgb, var(--panel) 92%, transparent);
                 border: 1px solid var(--line);
@@ -4829,11 +5203,22 @@
             }
 
             .settings-save-float {
-                left: 16px;
-                right: 16px;
-                bottom: calc(96px + env(safe-area-inset-bottom));
-                justify-content: space-between;
-                border-radius: 20px;
+                left: 12px;
+                right: 12px;
+                bottom: calc(104px + env(safe-area-inset-bottom));
+                gap: 8px;
+                padding-left: 12px;
+                border-radius: 18px;
+            }
+
+            .settings-save-float__hint {
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .settings-save-float > .solid-button {
+                padding-right: 0.72rem;
+                padding-left: 0.72rem;
             }
 
             .two-col-grid {
@@ -4912,7 +5297,7 @@
                             <img v-if="brandLogoUrl" :src="brandLogoUrl" alt="页面 Logo" class="brand-logo">
                             <div v-else class="brand-logo-fallback">C</div>
                             <div class="brand-copy">
-                                <h1 class="brand-copy__title">ECS 控制台</h1>
+                                <h1 class="brand-copy__title">{{ appBrandName }}</h1>
                                 <p class="brand-copy__description">实例、流量与定时策略，一处管理。</p>
                             </div>
                         </div>
@@ -4943,7 +5328,7 @@
                             <div v-else class="brand-logo-fallback">C</div>
                         </div>
                         <div>
-                            <p class="auth-brand__eyebrow">ECS 控制台</p>
+                            <p class="auth-brand__eyebrow">{{ appBrandName }}</p>
                             <h2 class="auth-brand__title">管理员登录</h2>
                         </div>
                     </div>
@@ -5233,6 +5618,8 @@
                                     <div class="summary-cell">
                                         <div class="table-tooltip" :data-tooltip="group.domain">
                                             <div class="summary-primary font-mono text-sm truncate">{{ group.domain }}</div>
+                                            <p class="ddns-sync-status" :class="{ 'has-error': rotationDNSResults[group.id]?.error }" role="status">{{ rotationDNSLabel(group.id) }}</p>
+                                            <button @click="syncRotationDNS(group)" class="ghost-button compact-button ddns-sync-button" :aria-busy="!!rotationDNSBusy[group.id]" :disabled="rotationDNSBusy[group.id] || settingsDirty">{{ rotationDNSBusy[group.id] ? '同步中…' : '立即同步 DDNS' }}</button>
                                         </div>
                                     </div>
                                     <div class="summary-cell">
@@ -5277,6 +5664,10 @@
                                         <button @click="openEditRotationGroup(config.RotationGroups.indexOf(group))" class="ghost-button compact-button">编辑</button>
                                         <button @click="removeRotationGroup(config.RotationGroups.indexOf(group))" class="danger-button compact-button">删除</button>
                                     </div>
+                                </div>
+                                <div class="ddns-mobile-sync">
+                                    <p class="ddns-sync-status" :class="{ 'has-error': rotationDNSResults[group.id]?.error }" role="status">{{ rotationDNSLabel(group.id) }}</p>
+                                    <button @click="syncRotationDNS(group)" class="ghost-button ddns-sync-button" :aria-busy="!!rotationDNSBusy[group.id]" :disabled="rotationDNSBusy[group.id] || settingsDirty">{{ rotationDNSBusy[group.id] ? '同步中…' : '立即同步 DDNS' }}</button>
                                 </div>
                                 <div class="rotation-group-metrics">
                                     <div class="rotation-group-metric">
@@ -5558,12 +5949,37 @@
                             <div class="settings-workspace">
                                 <transition name="settings-panel" mode="out-in">
                                     <div :key="currentSettingsTab" class="settings-grid">
+                            <section v-if="currentSettingsTab === 'backup'" class="metric-card space-y-4">
+                                <header class="settings-section__head"><h3>备份恢复</h3></header>
+                                <div class="settings-fields">
+                                    <p class="settings-hint">账号、设置、流量历史和 Passkey 会打包为加密文件。备份密码不会保存在系统中，请务必妥善保管。</p>
+                                    <div class="two-col-grid">
+                                        <div class="settings-field">
+                                            <label for="backup-password">备份密码</label>
+                                            <input id="backup-password" v-model="backupPassword" type="password" class="glass-input" minlength="8" autocomplete="new-password" placeholder="至少 8 位">
+                                        </div>
+                                        <div class="settings-field">
+                                            <label for="backup-file">恢复文件</label>
+                                            <input id="backup-file" type="file" class="glass-input" accept=".ecsbkp,application/octet-stream" @change="backupFile = $event.target.files?.[0] || null">
+                                            <p v-if="backupFile" class="settings-hint">已选择：{{ backupFile.name }}</p>
+                                        </div>
+                                    </div>
+                                    <div class="settings-backup-actions">
+                                        <button @click="createBackup" class="ghost-button" :disabled="backupBusy">{{ backupBusy ? '处理中...' : '下载备份' }}</button>
+                                        <button @click="restoreBackup" class="danger-button" :disabled="backupBusy || !backupFile">恢复备份</button>
+                                    </div>
+                                    <p class="settings-warning">恢复会覆盖当前账号和设置，清除当前登录会话，并要求使用备份中的管理员凭据重新登录。</p>
+                                </div>
+                            </section>
+
                             <div v-if="currentSettingsTab === 'global'" class="metric-card space-y-4">
                                 <div>
                                     <h3 class="text-lg font-bold">全局配置</h3>
                                 </div>
                                 <div class="space-y-3">
                                     <div class="settings-brand-card rounded-[18px] border border-slate-200/70 bg-white/70 p-4">
+                                        <label for="app-brand-name" class="mb-2 block text-sm font-semibold text-[#6f7787]">控制台名称</label>
+                                        <input id="app-brand-name" v-model.trim="config.AppBrand.name" class="glass-input mb-3" maxlength="40" placeholder="ECS 控制台">
                                         <label class="mb-3 block text-sm font-semibold text-[#6f7787]">页面 Logo</label>
                                         <div class="settings-brand-row flex flex-wrap items-center gap-4">
                                             <img v-if="brandLogoUrl" :src="brandLogoUrl" alt="页面 Logo 预览" class="brand-logo-preview">
@@ -5919,42 +6335,25 @@
                         </div>
                     </section>
 
-                    <section v-if="currentMenu === 'logs' && isAdmin" class="glass-panel section-panel">
-                        <div class="section-head">
-                            <div>
-                                <h2 class="section-title">系统日志</h2>
-                            </div>
-                            <div class="tab-pill-group">
-                                <button @click="currentLogTab = 'action'; fetchLogs()" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'action' }">动作日志</button>
-                                <button @click="currentLogTab = 'heartbeat'; fetchLogs()" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'heartbeat' }">心跳日志</button>
-								<button @click="currentLogTab = 'audit'; fetchLogs()" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'audit' }">操作审计</button>
-                                <button @click="clearLogs" class="danger-button" :disabled="currentLogTab === 'audit'">清空</button>
-                            </div>
+                    <section v-if="currentMenu === 'logs' && isAdmin" class="glass-panel section-panel logs-panel" aria-labelledby="logs-title">
+                        <div class="tab-pill-group mb-4" role="group" aria-label="日志类别">
+                            <button @click="selectLogTab('action')" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'action' }" :aria-pressed="currentLogTab === 'action'">动作日志</button>
+                            <button @click="selectLogTab('heartbeat')" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'heartbeat' }" :aria-pressed="currentLogTab === 'heartbeat'">心跳日志</button>
+                            <button @click="selectLogTab('audit')" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'audit' }" :aria-pressed="currentLogTab === 'audit'">操作审计</button>
                         </div>
-
+                        <template v-if="currentLogTab === 'audit'">
+                            <div class="section-head">
+                                <h2 id="logs-title" class="section-title">操作审计</h2>
+                                <button @click="fetchLogs" class="ghost-button compact-button">刷新审计</button>
+                            </div>
 						<div v-if="currentLogTab === 'audit'" class="audit-toolbar">
 							<app-select v-model="auditFilters.source" class="glass-select" :options="auditSourceOptions" @update:model-value="fetchLogs" />
 							<app-select v-model="auditFilters.action" class="glass-select" :options="auditActionOptions" @update:model-value="fetchLogs" />
 							<input v-model.trim="auditFilters.keyword" @input="scheduleAuditSearch" class="glass-input" placeholder="搜索请求编号、实体或摘要">
 						</div>
 
-                        <div class="mt-5 space-y-3" :class="{ 'audit-log-list': currentLogTab === 'audit' }">
-							<article v-if="currentLogTab !== 'audit'" v-for="log in systemLogs" :key="log.id || log.time_str + log.message" class="metric-card log-card">
-                                <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <div class="flex items-center gap-2">
-                                        <span class="status-pill"
-                                            :class="currentLogTab === 'action'
-                                                ? (log.type === 'warning' ? 'status-transition' : log.type === 'error' ? 'status-stopped' : 'status-running')
-                                                : (log.type === 'error' ? 'status-stopped' : log.type === 'warning' ? 'status-transition' : 'status-running')">
-                                            {{ logTypeLabel(log.type) }}
-                                        </span>
-                                        <span class="text-xs text-[var(--muted)] font-mono">{{ log.time_str }}</span>
-                                    </div>
-                                </div>
-                                <p class="mt-3 font-mono text-sm leading-6">{{ log.message }}</p>
-                            </article>
-
-							<article v-if="currentLogTab === 'audit'" v-for="log in systemLogs" :key="log.request_id" class="metric-card log-card">
+<div class="mt-5 space-y-3">
+							<article v-if="currentLogTab === 'audit'" v-for="log in auditLogs" :key="log.request_id" class="metric-card log-card">
 								<div class="flex flex-wrap items-center justify-between gap-2">
 									<div class="flex flex-wrap items-center gap-2">
 										<span class="status-pill" :class="log.success ? 'status-running' : 'status-stopped'">{{ log.success ? '成功' : '失败' }}</span>
@@ -5971,17 +6370,82 @@
 								<p v-if="log.error" class="audit-card__error">{{ log.error }}</p>
 							</article>
 
-                            <div v-if="systemLogs.length === 0" class="metric-card" style="margin-top:10px">
-                                <p class="text-center text-sm text-[var(--muted)]">当前没有日志记录。</p>
+<p v-if="!auditLogs.length" class="logs-empty">当前没有操作审计记录。</p>
+</div></template>
+                        <template v-if="currentLogTab !== 'audit'">
+                        <div class="section-head">
+                            <h2 id="logs-title" class="section-title">系统日志</h2>
+                            <div class="logs-header-actions">
+                                <label class="logs-auto" title="自动检查新日志，更新列表前会提示">
+                                    <span>自动刷新</span>
+                                    <span class="switch-control"><input type="checkbox" v-model="logView.state.auto"><span class="switch-slider"></span></span>
+                                </label>
+                                <button @click="logView.refresh" class="ghost-button compact-button logs-refresh" :class="{ 'has-new-logs': !!logView.state.pending }" :aria-busy="logView.state.loading" :disabled="logView.state.loading || logView.state.clearing"><span v-if="logView.state.loading" class="logs-spinner" aria-hidden="true"></span><span>{{ logView.state.loading ? '刷新中' : logView.state.pending === 'new' ? '查看新日志' : logView.state.pending === 'changed' ? '刷新记录' : '刷新日志' }}</span></button>
+                                <div class="logs-menu" @focusout="logView.closeMenuOnBlur" @keydown.esc.stop.prevent="logView.closeMenu($event)">
+                                    <button class="ghost-button compact-button" @click="logView.state.menuOpen = !logView.state.menuOpen" aria-haspopup="menu" :aria-expanded="logView.state.menuOpen">更多</button>
+                                    <transition name="logs-menu">
+                                        <div v-if="logView.state.menuOpen" class="logs-menu-popup" role="menu">
+                                            <button role="menuitem" @click="logView.clearSelected" :disabled="logView.state.clearing">清空{{ currentLogTab === 'heartbeat' ? '心跳' : '动作' }}日志</button>
+                                        </div>
+                                    </transition>
+                                </div>
                             </div>
                         </div>
+                        <div class="logs-toolbar">
+                            <form class="logs-filters" role="search" @submit.prevent="logView.refresh">
+                                <input v-model="logView.state.search" type="search" maxlength="200" class="glass-input" aria-label="搜索日志内容" placeholder="搜索日志内容">
+                                <select v-if="currentLogTab === 'action'" v-model="logView.state.level" class="glass-input logs-level" aria-label="日志级别">
+                                    <option value="all">全部级别</option><option value="error">错误</option><option value="warning">警告</option><option value="info">信息</option>
+                                </select>
+                                <label v-else class="logs-merge"><input type="checkbox" v-model="logView.state.mergeHeartbeats">合并相同心跳</label>
+                            </form>
+                        </div>
+                        <div class="logs-status">
+                            <span title="心跳只表示监控循环有响应，不代表所有云接口均正常">最近心跳：<span class="logs-stamp" :title="logView.state.lastHeartbeat?.time_str">{{ logView.state.lastHeartbeat?.time_str || (logView.state.loading ? '获取中…' : logView.state.error ? '暂未获取' : '暂无记录') }}</span></span>
+                            <span class="logs-order">{{ logView.state.auto ? '最新在前 · 自动刷新中' : '最新在前 · 已暂停刷新' }}</span>
+                        </div>
+                        <div v-if="logView.state.error" class="logs-error" role="alert"><span>{{ logView.state.error }}</span><button @click="logView.retry" class="log-text-action">重试</button></div>
+                        <div v-if="logView.state.pollError" class="logs-poll-error" role="status">{{ logView.state.pollError }}</div>
+                        <div class="logs-scroll" ref="logViewport" v-log-motion="{ key: logView.motionKey, busy: logView.state.loading }" tabindex="0" aria-label="日志记录" :aria-busy="logView.state.loading || logView.state.loadingMore">
+                            <div v-if="!systemLogs.length" class="logs-empty">
+                                <template v-if="logView.state.loading">正在读取日志…</template>
+                                <template v-else-if="!logView.state.error">
+                                    {{ logView.state.search || logView.state.level !== 'all' ? '没有符合筛选条件的日志。' : '暂无日志记录。' }}
+                                    <button v-if="logView.state.search || logView.state.level !== 'all'" @click="logView.resetFilters" class="log-text-action">重置筛选</button>
+                                </template>
+                            </div>
+                            <div v-else role="table" aria-label="系统日志列表">
+                                <div class="logs-table-head" role="row"><span role="columnheader">时间</span><span role="columnheader">级别</span><span role="columnheader">日志内容</span><span role="columnheader">操作</span></div>
+                                <div v-for="row in logView.displayRows" :key="row.key" :data-log-key="row.key" class="log-row" :class="[row.type, { 'log-summary-row': row.isGroup, 'log-detail-row': row.isDetail, 'is-expanded': row.isGroup && logView.state.expanded[row.key] }]" role="row">
+                                    <span class="log-time" role="cell">
+                                        <template v-if="row.isGroup"><span>{{ row.time_str.slice(0, 10) }}</span><span class="log-time-range">{{ row.entries[row.entries.length - 1].time_str.slice(11) }} 至 {{ row.time_str.slice(11) }}</span></template>
+                                        <template v-else>{{ row.time_str }}</template>
+                                    </span>
+                                    <span class="log-type" role="cell"><span class="log-badge" :class="row.type">{{ logView.levelLabel(row.type) }}</span></span>
+                                    <div class="log-content" role="cell">
+                                        <p class="log-message" :class="{ clamped: logView.longMessage(row) && !logView.state.expanded[row.key] }">{{ row.isGroup && logView.state.expanded[row.key] ? '原始心跳记录' : logView.safeMessage(row.message) }}</p>
+                                        <p v-if="row.isGroup" class="log-group-meta">共 {{ row.entries.length }} 次相同心跳</p>
+                                    </div>
+                                    <div class="log-actions" role="cell">
+                                        <button v-if="row.isGroup || logView.longMessage(row)" class="log-text-action" @click="logView.toggleExpanded(row)" :aria-expanded="!!logView.state.expanded[row.key]">{{ logView.state.expanded[row.key] ? '收起' : '展开' }}</button>
+                                        <button class="log-text-action" @click="logView.copyLog(row)" :title="row.isGroup ? '复制这组原始心跳记录' : '复制日志'">复制</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="logs-footer">
+                            <span>已加载 {{ systemLogs.length }} 条原始记录</span>
+                            <button v-if="logView.state.hasMore" @click="logView.loadMore" class="ghost-button compact-button logs-load-more" :aria-busy="logView.state.loadingMore" :disabled="logView.state.loading || logView.state.loadingMore"><span v-if="logView.state.loadingMore" class="logs-spinner" aria-hidden="true"></span><span>{{ logView.state.loadingMore ? '加载中' : '加载更多' }}</span></button>
+                            <span v-else-if="systemLogs.length && !logView.state.loading">没有更早的记录</span>
+                        </div>
+                    </template>
                     </section>
 
                     <section v-if="currentMenu === 'about' && isAdmin" class="glass-panel section-panel about-section">
                         <div class="about-hero">
                             <div class="about-hero__mark" aria-hidden="true">06</div>
                             <div>
-                                <h2 class="about-hero__title">关于 ECS 控制台</h2>
+                                <h2 class="about-hero__title">关于 {{ appBrandName }}</h2>
                                 <p class="about-hero__copy">阿里云 ECS 实例、流量与自动化控制台。</p>
                             </div>
                             <a :href="updateInfo.repository_url || 'https://github.com/JudiLite/ecs-controller'" target="_blank" rel="noopener noreferrer" class="project-repository-link" aria-label="打开 GitHub 项目">
@@ -6074,17 +6538,18 @@
                 <button
                     v-for="item in menuItems"
                     :key="'mobile-nav-' + item.key"
+                    :aria-label="item.label"
                     @click="currentMenu = item.key"
                     class="mobile-bottom-nav__button"
                     :class="{ active: currentMenu === item.key }"
                 >
                     <span v-html="item.icon"></span>
-                    <span>{{ item.label }}</span>
+                    <span>{{ item.mobileLabel || item.label }}</span>
                 </button>
             </nav>
         </div>
 
-        <transition name="select-pop">
+        <transition name="settings-save">
             <div v-if="settingsDirty" class="settings-save-float">
                 <span class="settings-save-float__hint">系统设置有未保存改动</span>
                 <button @click="saveConfig" class="solid-button">保存系统设置</button>
@@ -6179,7 +6644,7 @@
                         <div v-else class="brand-logo-fallback">C</div>
                     </div>
                     <div>
-                        <p class="auth-brand__eyebrow">ECS 控制台</p>
+                        <p class="auth-brand__eyebrow">{{ appBrandName }}</p>
                         <h2 class="auth-brand__title">管理员登录</h2>
                     </div>
                 </div>
@@ -6339,7 +6804,7 @@
             </div>
         </div>
 
-        <div v-if="showAccountModal" class="account-modal-overlay">
+        <div v-if="showAccountModal" class="account-modal-overlay" :inert="showAccountTestModal || undefined" :aria-hidden="showAccountTestModal || undefined">
             <div class="glass-panel account-modal">
                 <div class="section-head">
                     <div>
@@ -6390,43 +6855,58 @@
                     </div>
                 </div>
 
-                <div v-if="accountDraftTestResult" class="test-result-card"
-                    :class="accountDraftTestResult.monitorStatus === 'warning' || !accountDraftTestResult.success ? 'warning' : 'success'">
-                    <div class="flex items-center justify-between gap-3">
-                        <div>
-                            <p class="test-result-title text-sm font-bold">账号测试结果</p>
-                            <p class="test-result-message mt-1 text-xs">{{ accountDraftTestResult.message }}</p>
-                        </div>
-                        <span class="test-result-badge"
-                            :class="{ warning: accountDraftTestResult.monitorStatus === 'warning' || !accountDraftTestResult.success }">
-                            {{ accountDraftTestResult.monitorStatus === 'warning' || !accountDraftTestResult.success ? '需处理' : '通过' }}
-                        </span>
-                    </div>
-                    <div class="test-result-line">
-                        <strong>ECS 接口</strong>
-                        <span>已接通</span>
-                    </div>
-                    <div class="test-result-line">
-                        <strong>云监控接口</strong>
-                        <span :class="{ 'warning-text': accountDraftTestResult.monitorStatus === 'warning' }">
-                            {{ accountDraftTestResult.monitorMessage || '未测试' }}
-                        </span>
-                    </div>
-                    <div class="test-result-line">
-                        <strong>当前区域实例数</strong>
-                        <span>{{ accountDraftTestResult.instanceCount ?? 0 }} 台</span>
-                    </div>
-                </div>
                 </div>
 
                 <div class="top-action-row" style="justify-content: flex-end; margin-top: 24px;">
                     <button @click="closeAccountModal" class="ghost-button">取消</button>
-                    <button @click="testAccountDraft" class="ghost-button" :disabled="testingAccountDraft || savingAccountModal">
+                    <button ref="accountTestTrigger" @click="testAccountDraft" class="ghost-button" :disabled="testingAccountDraft || savingAccountModal">
                         {{ testingAccountDraft ? '测试中...' : '测试账号' }}
                     </button>
                     <button @click="saveAccountModal" class="solid-button" :disabled="savingAccountModal">
                         {{ savingAccountModal ? '保存中...' : '保存账号' }}
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="showAccountTestModal" class="account-modal-overlay account-test-overlay" @click.self="closeAccountTestModal">
+            <div ref="accountTestDialog" class="glass-panel account-modal account-test-modal" role="dialog" aria-modal="true"
+                aria-labelledby="account-test-title" :aria-busy="testingAccountDraft" @keydown.esc.stop.prevent="closeAccountTestModal" @keydown.tab="trapAccountTestFocus">
+                <div class="section-head">
+                    <div>
+                        <h2 id="account-test-title" class="section-title">账号权限检查</h2>
+                        <p class="account-test-meta">{{ accountTestContext.remark || '当前账号' }} · {{ accountTestContext.region }} · {{ accountTestContext.site }}</p>
+                    </div>
+                    <button ref="accountTestClose" @click="closeAccountTestModal" class="ghost-button compact-button">关闭</button>
+                </div>
+                <div class="account-test-body">
+                    <div class="account-test-summary" role="status" aria-live="polite">
+                        <div>
+                            <p>{{ testingAccountDraft ? '正在检查各项权限，请稍候…' : accountDraftTestResult?.message }}</p>
+                            <p v-if="accountDraftTestResult?.instanceCount != null" class="account-test-meta">当前区域实例数：{{ accountDraftTestResult.instanceCount }} 台</p>
+                        </div>
+                        <span class="permission-status" :class="accountDraftTestResult?.status || 'unchecked'">
+                            {{ testingAccountDraft ? '检查中' : accountTestStatusText(accountDraftTestResult?.status) }}
+                        </span>
+                    </div>
+                    <section v-for="group in accountTestGroups" :key="group.title" class="permission-group">
+                        <h3>{{ group.title }}</h3>
+                        <div v-for="check in group.checks" :key="check.id" class="permission-row">
+                            <div class="permission-row__header">
+                                <strong>{{ check.name }}</strong>
+                                <span class="permission-status" :class="check.status">{{ permissionStatusText(check.status) }}</span>
+                            </div>
+                            <p class="permission-message">{{ check.message }}<span v-if="check.errorCode">（{{ check.errorCode }}）</span></p>
+                            <a v-if="check.status !== 'ok' && check.policy" class="permission-policy"
+                                :href="'https://help.aliyun.com/zh/ram/developer-reference/' + encodeURIComponent(check.policy.toLowerCase())"
+                                target="_blank" rel="noopener noreferrer">{{ check.status === 'missing' ? '需要添加：' : '建议确认：' }}{{ check.policy }}</a>
+                        </div>
+                    </section>
+                    <p class="account-test-note">检查不会实际开关机、创建或释放资源。未验证的权限请在阿里云确认；本次结果仅针对当前区域和用于检查的实例。</p>
+                </div>
+                <div class="account-test-footer">
+                    <button v-if="!testingAccountDraft" @click="testAccountDraft" class="ghost-button">重新检查</button>
+                    <button @click="closeAccountTestModal" class="solid-button">{{ testingAccountDraft ? '取消检查' : '返回编辑' }}</button>
                 </div>
             </div>
         </div>
@@ -6440,11 +6920,11 @@
                             <button v-if="selectedBillingDate" @click="backToBillingHistory" class="billing-details-back">← 返回历史消费</button>
                             <h2 class="section-title">
                                 <template v-if="selectedBillingDate && selectedBillingDay">
-                                    {{ formatBillingDate(selectedBillingDate) }}<span class="billing-details-title__amount">消费金额：{{ formatBillingAmount(selectedBillingDay.total, billingDetails.currency, 6) }}</span>
+                                    {{ formatBillingDate(selectedBillingDate) }}<span class="billing-details-title__amount">消费金额：{{ formatBillingAmount(selectedBillingDay.total, billingDetails.currency) }}</span>
                                 </template>
                                 <template v-else>历史消费</template>
                             </h2>
-                            <p class="mt-1 text-sm text-slate-500">{{ billingDetails.title }} · 云端账单可能存在延迟</p>
+                            <p class="mt-1 text-sm text-slate-500">{{ billingDetails.title }} · 账号账单（不限当前实例或区域） · 云端账单可能存在延迟</p>
                         </div>
                     </div>
                     <button @click="closeBillingDetails" class="ghost-button compact-button">关闭</button>
@@ -6455,7 +6935,7 @@
                         <div v-if="!selectedBillingDate" class="billing-details-summary">
                             <div>
                                 <div class="billing-details-summary__label">近 {{ billingDetails.days }} 日消费</div>
-                                <div class="billing-details-summary__value">{{ formatBillingAmount(billingDetails.total, billingDetails.currency, 6) }}</div>
+                                <div class="billing-details-summary__value">{{ formatBillingAmount(billingDetails.total, billingDetails.currency) }}</div>
                             </div>
                             <div class="billing-details-summary__meta">
                                 <div>{{ billingDetails.from }} 至 {{ billingDetails.to }}</div>
@@ -6474,7 +6954,7 @@
                                 </div>
                                 <div class="billing-history-row__products" :title="day.productSummary">{{ day.productSummary }}</div>
                                 <div class="billing-history-row__count">{{ day.count }} 项</div>
-                                <div class="billing-history-row__amount">{{ formatBillingAmount(day.total, billingDetails.currency, 6) }}</div>
+                                <div class="billing-history-row__amount">{{ formatBillingAmount(day.total, billingDetails.currency) }}</div>
                                 <div class="billing-history-row__arrow">查看 →</div>
                             </button>
                         </div>
@@ -6490,9 +6970,9 @@
                                 <tbody>
                                     <tr v-for="(item, index) in selectedBillingDay?.items || []" :key="`billing-detail-${selectedBillingDate}-${index}`" :style="{ '--billing-enter-delay': `${Math.min(index, 8) * 16}ms` }">
                                         <td>
-                                            <div class="billing-details-table__product">{{ item.product_name }}</div>
-                                            <div v-if="item.billing_item" class="billing-details-table__item">计费项目：{{ item.billing_item }}</div>
-                                            <div v-if="item.product_detail && item.product_detail !== item.product_name" class="billing-details-table__code">明细：{{ item.product_detail }}</div>
+                                            <div class="billing-details-table__product" :title="item.product_name || item.product_code">{{ billingItemLabels(item).product }}</div>
+                                            <div v-if="billingItemLabels(item).item" class="billing-details-table__item" :title="item.billing_item || item.billing_item_code">计费项目：{{ billingItemLabels(item).item }}</div>
+                                            <div v-if="billingItemLabels(item).detail && billingItemLabels(item).detail !== billingItemLabels(item).product" class="billing-details-table__code" :title="item.product_detail">明细：{{ billingItemLabels(item).detail }}</div>
                                             <div v-if="item.instance_id" class="billing-details-table__instance">账单资源：{{ item.instance_id }}</div>
                                         </td>
                                         <td class="billing-details-table__usage">
@@ -6789,8 +7269,8 @@
                         <div v-else class="brand-logo-fallback">C</div>
                     </div>
                     <div>
-                        <p class="auth-brand__eyebrow">首次使用</p>
-                        <h2 class="setup-title">初始化 ECS 控制台</h2>
+                        <p class="auth-brand__eyebrow">{{ appBrandName }}</p>
+                        <h2 class="setup-title">初始化 {{ appBrandName }}</h2>
                     </div>
                 </div>
                 <p class="setup-desc">设置管理员用户名和密码、流量保护阈值与默认停机方式，完成后即可开始管理 ECS 实例。</p>
@@ -6840,6 +7320,9 @@
 
     <script src="static/vue.global.prod.js?v=__ASSET_VERSION__"></script>
     <script src="static/runtime-status.js?v=__ASSET_VERSION__"></script>
+    <script src="static/billing-display.js?v=__ASSET_VERSION__"></script>
+    <script src="static/log-view.js?v=__ASSET_VERSION__"></script>
+    <script src="static/log-motion.js?v=__ASSET_VERSION__"></script>
     <script>
         // Keep legacy action URLs while attaching the Go backend's CSRF token.
         const nativeFetch = window.fetch.bind(window);
@@ -7173,6 +7656,7 @@
         };
 
         createApp({
+            directives: { logMotion: ECSLogMotion.directive },
             components: {
                 AppSelect,
                 TimePicker
@@ -7261,6 +7745,7 @@
 					billing_cost_threshold: 0,
 					billing_balance_threshold: 0,
                     AppBrand: {
+                        name: 'ECS 控制台',
                         logo_url: ''
                     },
                     Notification: {
@@ -7406,7 +7891,7 @@
                 };
                 const savedNavigation = readNavigationState();
                 const validMenus = ['manage', 'groups', 'accounts', 'settings', 'runtime', 'logs', 'about'];
-                const validSettingsTabs = ['instance', 'notifications', 'global'];
+                const validSettingsTabs = ['instance', 'notifications', 'global', 'backup'];
                 const validNotifyTabs = ['telegram', 'email', 'webhook'];
                 const validLogTabs = ['action', 'heartbeat', 'audit'];
                 const currentMenu = ref(validMenus.includes(savedNavigation.menu) ? savedNavigation.menu : 'manage');
@@ -7471,7 +7956,7 @@
                         mobileNavScrollFrame = 0;
                     }
                 };
-                const logAutoRefresh = ref(false);
+                const logAutoRefresh = ref(true);
                 const sendingEmail = ref(false);
                 const testingTelegram = ref(false);
                 const testingWebhook = ref(false);
@@ -7540,6 +8025,41 @@
                 const savingAccountModal = ref(false);
                 const testingAccountDraft = ref(false);
                 const accountDraftTestResult = ref(null);
+                const showAccountTestModal = ref(false);
+                const accountTestContext = ref({ remark: '', region: '', site: '' });
+                const accountTestDialog = ref(null);
+                const accountTestClose = ref(null);
+                const accountTestTrigger = ref(null);
+                let accountTestController = null;
+                const accountTestGroups = computed(() => {
+                    const checks = Array.isArray(accountDraftTestResult.value?.checks) ? accountDraftTestResult.value.checks : [];
+                    return [
+                        { title: '基础功能', checks: checks.filter(check => check.required) },
+                        { title: '可选功能（不用时可忽略）', checks: checks.filter(check => !check.required) }
+                    ].filter(group => group.checks.length);
+                });
+                const permissionStatusText = (status) => ({ ok: '通过', missing: '缺少权限', unavailable: '检查失败', unchecked: '未验证' }[status] || '未验证');
+                const accountTestStatusText = (status) => ({ ok: '通过', missing: '需补权限', warning: '待确认', error: '检查失败' }[status] || '待确认');
+                const closeAccountTestModal = () => {
+                    const wasOpen = showAccountTestModal.value;
+                    accountTestController?.abort();
+                    accountTestController = null;
+                    testingAccountDraft.value = false;
+                    showAccountTestModal.value = false;
+                    if (wasOpen && showAccountModal.value) Vue.nextTick(() => accountTestTrigger.value?.focus());
+                };
+                const trapAccountTestFocus = (event) => {
+                    const elements = [...(accountTestDialog.value?.querySelectorAll('button:not(:disabled), a[href]') || [])];
+                    const first = elements[0];
+                    const last = elements[elements.length - 1];
+                    if (event.shiftKey && document.activeElement === first) {
+                        event.preventDefault();
+                        last?.focus();
+                    } else if (!event.shiftKey && document.activeElement === last) {
+                        event.preventDefault();
+                        first?.focus();
+                    }
+                };
                 const accountModalMode = ref('create');
                 const editingAccountIndex = ref(-1);
                 const accountDraft = ref(createDefaultAccount());
@@ -7595,10 +8115,10 @@
                         day.count += 1;
                         day.total += Number.isFinite(amount) ? amount : 0;
                         day.items.push(item);
-                        const productName = item.product_name || item.product_code || '其他费用';
-                        const product = item.billing_item
-                            ? `${productName} · ${item.billing_item}`
-                            : productName;
+                        const labels = billingItemLabels(item);
+                        const product = labels.item
+                            ? `${labels.product} · ${labels.item}`
+                            : labels.product;
                         if (!day.products.includes(product)) {
                             day.products.push(product);
                         }
@@ -7646,6 +8166,9 @@
                     traffic_threshold: 95,
                     shutdown_mode: 'KeepCharging'
                 });
+                const backupPassword = ref('');
+                const backupFile = ref(null);
+                const backupBusy = ref(false);
 
                 const manageFilter = ref({ account: '', region: '', status: '', search: '' });
                 const rotationGroupSearch = ref('');
@@ -7727,144 +8250,10 @@
 					}).sort((left, right) => left.order - right.order);
 				});
                 const formatTrafficUsage = (value) => Number(value || 0).toFixed(2).replace(/\.00$/, '');
-                const formatBillingNumber = (value) => {
-                    const number = Number(value);
-                    if (!Number.isFinite(number)) return '';
-                    return number.toLocaleString('zh-CN', { maximumFractionDigits: 6 });
-                };
-                const formatBillingMetric = (item) => {
-                    const value = formatBillingNumber(item?.usage);
-                    if (!value) return '';
-                    return [value, item?.unit].filter(Boolean).join(' ');
-                };
-                const billingItemKind = (item) => {
-                    const text = [item?.product_name, item?.product_code, item?.product_detail, item?.billing_item, item?.billing_item_code]
-                        .filter(Boolean)
-                        .join(' ')
-                        .toLowerCase();
-                    if (text.includes('imageos')) return 'imageos';
-                    if (text.includes('系统盘') || text.includes('systemdisk')) return 'system-disk';
-                    if (text.includes('公网ip保有') || text.includes('eip保有') || (text.includes('弹性公网ip') && text.includes('保有'))) return 'eip-holding';
-                    if (text.includes('出方向流量') || text.includes('outbound traffic')) return 'traffic';
-                    if (text.includes('云服务器配置') || text.includes('instance configuration')) return 'instance-configuration';
-                    return 'generic';
-                };
-                const formatCurrentResourceStatus = (value) => {
-                    const status = String(value || '').trim();
-                    return status.toLowerCase() === 'in_use' ? 'InUse' : status;
-                };
-                const billingConfigPairs = (value) => String(value || '')
-                    .split(/[;；]/)
-                    .map((part) => {
-                        const separator = part.includes('：') ? '：' : ':';
-                        const index = part.indexOf(separator);
-                        return index > 0 ? {
-                            key: part.slice(0, index).trim(),
-                            value: part.slice(index + separator.length).trim()
-                        } : null;
-                    })
-                    .filter((part) => part?.key && part?.value && part.value !== '-');
-                const billingConfigValue = (pairs, ...keys) => {
-                    const pair = pairs.find((candidate) => keys.includes(candidate.key))
-                        || pairs.find((candidate) => keys.some((key) => candidate.key.includes(key)));
-                    return pair?.value || '';
-                };
-                const billingConfigSummary = (item, kind) => {
-                    const pairs = billingConfigPairs(item?.instance_config);
-                    if (pairs.length === 0 || kind === 'traffic') return '';
-
-                    if (kind === 'system-disk') {
-                        const size = billingConfigValue(pairs, '系统盘大小');
-                        const category = billingConfigValue(pairs, '系统盘种类');
-                        const parts = [size, category].filter(Boolean);
-                        return parts.length > 0 ? `账单配置：${parts.join(' · ')}` : '';
-                    }
-
-                    if (kind === 'instance-configuration' || kind === 'imageos') {
-                        const spec = billingConfigValue(pairs, '实例规格');
-                        const cpu = billingConfigValue(pairs, 'cpu核数');
-                        const memory = billingConfigValue(pairs, '内存');
-                        const os = billingConfigValue(pairs, '操作系统的类型', '操作系统详情');
-                        const compute = spec || [cpu, memory].filter(Boolean).join(' ');
-                        const parts = [compute, os].filter(Boolean);
-                        return parts.length > 0 ? `账单配置：${parts.join(' · ')}` : '';
-                    }
-
-                    if (kind === 'eip-holding') {
-                        const peakBandwidth = billingConfigValue(pairs, '带宽峰值');
-                        const lineType = billingConfigValue(pairs, '线路类型');
-                        const numericBandwidth = Number(peakBandwidth.replace(/[^\d.]/g, ''));
-                        const bandwidth = /kbps/i.test(peakBandwidth) && numericBandwidth >= 1024
-                            ? `${formatBillingNumber(numericBandwidth / 1024)} Mbps`
-                            : peakBandwidth;
-                        const parts = [bandwidth, lineType].filter(Boolean);
-                        return parts.length > 0 ? `账单配置：${parts.join(' · ')}` : '';
-                    }
-
-                    return '';
-                };
-                const billingUsagePresentation = (item) => {
-                    const usage = formatBillingMetric(item);
-                    const resource = item?.current_resource || {};
-                    const disk = resource.system_disk || null;
-                    const eip = resource.eip || null;
-                    const kind = billingItemKind(item);
-                    const config = billingConfigSummary(item, kind);
-
-                    if (kind === 'traffic') {
-                        return {
-                            primary: usage ? `实际出方向流量：${usage}` : '实际出方向流量未返回',
-                            current: '',
-                            billing: '',
-                            config
-                        };
-                    }
-
-                    if (kind === 'system-disk') {
-                        const current = disk?.category || disk?.status
-                            ? `当前配置：${[disk?.category, formatCurrentResourceStatus(disk?.status)].filter(Boolean).join(' · ')}`
-                            : '';
-                        return {
-                            primary: Number(disk?.size_gib) > 0 ? `系统盘 ${disk.size_gib} GiB` : '系统盘当前配置未返回',
-                            current,
-                            billing: usage ? `账单累计容量时长：${usage}·小时` : '账单累计容量时长未返回',
-                            config
-                        };
-                    }
-
-                    if (kind === 'eip-holding') {
-                        const servicePeriod = Number(item?.service_period_seconds);
-                        const hours = Number.isFinite(servicePeriod) && servicePeriod > 0
-                            ? formatBillingNumber(servicePeriod / 3600)
-                            : formatBillingNumber(item?.usage);
-                        const current = eip
-                            ? `当前配置：${[formatCurrentResourceStatus(eip.status), Number(eip.bandwidth_mbps) > 0 ? `${eip.bandwidth_mbps} Mbps` : ''].filter(Boolean).join(' · ')}`
-                            : '';
-                        return {
-                            primary: eip ? `${eip.count || 1} 个 EIP` : '公网 IP 保有服务',
-                            current,
-                            billing: hours ? `账单保有时长：${hours} 小时` : '账单保有时长未返回',
-                            config
-                        };
-                    }
-
-                    if (kind === 'instance-configuration' || kind === 'imageos') {
-                        const hours = formatBillingNumber(item?.usage);
-                        return {
-                            primary: hours ? `账单计费时长：${hours} 小时` : '账单计费时长未返回',
-                            current: '',
-                            billing: '此值用于账单计费，不代表实例实际运行时长。',
-                            config
-                        };
-                    }
-
-                    return {
-                        primary: usage ? `账单累计用量：${usage}` : '账单用量未返回',
-                        current: '',
-                        billing: usage ? '账单累计用量不等同于当前资源数量或容量。' : '',
-                        config
-                    };
-                };
+                const {
+                    itemLabels: billingItemLabels,
+                    usagePresentation: billingUsagePresentation
+                } = ECSBillingDisplay;
                 const formatTrafficValue = (value) => {
                     const traffic = Number(value || 0);
                     if (!Number.isFinite(traffic) || traffic <= 0) return '0 MB';
@@ -7909,24 +8298,7 @@
                     const symbol = currency === 'USD' ? '$' : currency === 'CNY' ? '¥' : `${currency} `;
                     return `${symbol}${amount.toFixed(2).replace(/\.00$/, '')}`;
                 };
-                const formatBillingAmount = (value, currency = 'CNY', fixedDecimals = null) => {
-                    const amount = Number(value ?? 0);
-                    if (!Number.isFinite(amount)) {
-                        return '--';
-                    }
-
-                    const symbol = currency === 'USD' ? '$' : currency === 'CNY' ? '¥' : `${currency} `;
-                    const precision = Number.isInteger(fixedDecimals)
-                        ? Math.max(0, fixedDecimals)
-                        : amount !== 0 && Math.abs(amount) < 0.01 ? 6 : 2;
-                    let formatted = amount.toFixed(precision);
-                    if (!Number.isInteger(fixedDecimals) && precision > 2) {
-                        formatted = formatted.replace(/0+$/, '').replace(/\.$/, '');
-                    } else if (!Number.isInteger(fixedDecimals)) {
-                        formatted = formatted.replace(/\.00$/, '');
-                    }
-                    return `${symbol}${formatted || '0'}`;
-                };
+                const formatBillingAmount = ECSBillingDisplay.amount;
                 const formatBillingDate = (value) => {
                     const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
                     return match ? `${match[1]}年${match[2]}月${match[3]}日` : (value || '未知日期');
@@ -7944,6 +8316,8 @@
                     cloud: '普通云盘'
                 }[category] || category || '-');
                 const defaultBrandLogo = 'static/aliyun-logo.png';
+                const defaultBrandName = 'ECS 控制台';
+                const appBrandName = computed(() => (config.value.AppBrand?.name || defaultBrandName).trim() || defaultBrandName);
                 const brandLogoUrl = computed(() => (config.value.AppBrand?.logo_url || defaultBrandLogo).trim());
                 const updateFavicon = (url) => {
                     const icon = document.getElementById('app-favicon');
@@ -7954,6 +8328,9 @@
                         : (cleanUrl.endsWith('.jpg') || cleanUrl.endsWith('.jpeg') ? 'image/jpeg' : 'image/png');
                     icon.setAttribute('href', nextUrl);
                     icon.setAttribute('type', iconType);
+                };
+                const updateDocumentTitle = (name) => {
+                    document.title = name || defaultBrandName;
                 };
                 const ecsDiskCategorySelectOptions = computed(() => {
                     if (ecsDiskLoading.value) {
@@ -8191,7 +8568,8 @@
                 const settingsItems = [
                     { key: 'instance', label: '实例配置', description: '阈值、同步与费用' },
                     { key: 'notifications', label: '通知中心', description: '邮件、Telegram、回调' },
-                    { key: 'global', label: '全局配置', description: '界面、账号与安全' }
+                    { key: 'global', label: '全局配置', description: '界面、账号与安全' },
+                    { key: 'backup', label: '备份恢复', description: '加密导出与恢复' }
                 ];
 
                 const menuItems = computed(() => {
@@ -8202,36 +8580,42 @@
                             {
                                 key: 'manage',
                                 label: '实例管理',
+                                mobileLabel: '实例',
                                 description: '创建、启动与关机',
                                 icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h10"/></svg>'
                             },
                             {
                                 key: 'groups',
                                 label: '分组管理',
+                                mobileLabel: '分组',
                                 description: '轮转开关机与共享域名',
                                 icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="7" height="6" rx="2"/><rect x="14" y="14" width="7" height="6" rx="2"/><path d="M10 7h2a5 5 0 0 1 5 5v2"/><path d="m14 11 3 3 3-3"/></svg>'
                             },
                             {
                                 key: 'accounts',
                                 label: '账号管理',
+                                mobileLabel: '账号',
                                 description: '阿里云账号与流量',
                                 icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
                             },
                             {
                                 key: 'runtime',
                                 label: '运行状态',
+                                mobileLabel: '运行',
                                 description: '监控、轮转与任务',
                                 icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>'
                             },
                             {
                                 key: 'logs',
                                 label: '系统日志',
+                                mobileLabel: '日志',
                                 description: '操作与心跳记录',
                                 icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>'
                             },
                             {
                                 key: 'settings',
                                 label: '系统设置',
+                                mobileLabel: '设置',
                                 description: '运行参数与通知',
                                 icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.08V21a2 2 0 0 1-4 0v-.09a1.7 1.7 0 0 0-.4-1.08 1.7 1.7 0 0 0-1-.6 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.08-.4H2.9a2 2 0 0 1 0-4H3a1.7 1.7 0 0 0 1.08-.4 1.7 1.7 0 0 0 .6-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.08V2.9a2 2 0 0 1 4 0V3a1.7 1.7 0 0 0 .4 1.08 1.7 1.7 0 0 0 1 .6 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.08.4h.09a2 2 0 0 1 0 4h-.09a1.7 1.7 0 0 0-1.08.4 1.7 1.7 0 0 0-.6 1Z"/></svg>'
                             },
@@ -8315,6 +8699,37 @@
                 const settingsDirty = computed(() => {
                     return isAdmin.value && currentMenu.value === 'settings' && configBaseline.value !== '' && buildSettingsSnapshot(config.value) !== configBaseline.value;
                 });
+
+                const rotationDNSResults = ref({});
+                const rotationDNSBusy = ref({});
+                const rotationDNSLabel = (id) => {
+                    const result = rotationDNSResults.value[id];
+                    if (!result?.attemptedAt) return '等待同步 · 开机或 IP 变化后自动更新';
+                    if (result.error) return '同步失败：' + result.error;
+                    return result.address + ' · ' + runtimeFormatDateTime(result.updatedAt);
+                };
+                const fetchRotationDNSStatus = async () => {
+                    try {
+                        const response = await fetch('index.php?action=get_rotation_dns_status', { cache: 'no-store' });
+                        const payload = await response.json();
+                        if (response.ok) rotationDNSResults.value = payload.data || {};
+                    } catch (error) { console.error('DDNS status failed', error); }
+                };
+                const syncRotationDNS = async (group) => {
+                    if (rotationDNSBusy.value[group.id]) return;
+                    rotationDNSBusy.value[group.id] = true;
+                    try {
+                        const response = await fetch('index.php?action=sync_rotation_dns', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ groupId: group.id })
+                        });
+                        const payload = await response.json();
+                        if (!response.ok || !payload.success) throw new Error(payload.error || payload.message || 'DDNS 同步失败');
+                        rotationDNSResults.value[group.id] = payload.result;
+                        openAlert(payload.message, 'success');
+                    } catch (error) { openAlert(error.message || 'DDNS 请求失败', 'error'); }
+                    finally { rotationDNSBusy.value[group.id] = false; await fetchRotationDNSStatus(); }
+                };
 
                 const fetchConfig = async () => {
                     try {
@@ -8721,7 +9136,24 @@
                     }
                 };
 
+                const logViewport = ref(null);
+                const standardLogTab = ref(currentLogTab.value === 'heartbeat' ? 'heartbeat' : 'action');
+                const auditLogs = ref([]);
+                const logView = ECSLogView.create({
+                    Vue, tab: standardLogTab, items: systemLogs, auto: logAutoRefresh,
+                    confirm: askConfirm, notify: openAlert, copy: copyCredential,
+                    onUnauthorized: () => { isAdmin.value = false; },
+                    onReset: () => Vue.nextTick(() => { if (logViewport.value) logViewport.value.scrollTop = 0; })
+                });
+                const selectLogTab = (tab) => {
+                    stopLogPolling();
+                    currentLogTab.value = tab;
+                    if (tab !== 'audit') standardLogTab.value = tab;
+                    startLogPolling();
+                };
+
                 const fetchLogs = async () => {
+                    if (currentLogTab.value !== 'audit') return logView.refresh();
                     if (!isAdmin.value) return;
                     try {
 						const params = new URLSearchParams();
@@ -8736,7 +9168,7 @@
 						}
 						const res = await fetch(`index.php?${params.toString()}`);
                         const data = await res.json();
-                        systemLogs.value = data.data || [];
+                        auditLogs.value = data.data || [];
                     } catch (error) {
                         console.error('Fetch logs failed', error);
                     }
@@ -8806,39 +9238,23 @@
                     runtimeInterval = setInterval(fetchRuntimeStatus, 5000);
                 };
 
-                const clearLogs = async () => {
-                    const confirmed = await askConfirm(`确定清空${currentLogTab.value === 'action' ? '动作' : '心跳'}日志吗？`, {
-                        title: '清空日志'
-                    });
-                    if (!confirmed) return;
-                    try {
-                        const res = await fetch('index.php?action=clear_logs', {
-                            method: 'POST',
-                            body: JSON.stringify({ tab: currentLogTab.value })
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            fetchLogs();
-                        }
-                    } catch (error) {
-                        console.error('Clear logs failed', error);
-                    }
-                };
-
+                const clearLogs = () => logView.clearSelected();
                 const startLogPolling = () => {
+                    if (!isAdmin.value || currentMenu.value !== 'logs') return;
+                    if (currentLogTab.value !== 'audit') { logView.start(); return; }
                     fetchLogs();
-                    logAutoRefresh.value = true;
                     if (logInterval) clearInterval(logInterval);
-                    logInterval = setInterval(fetchLogs, 3000);
+                    if (logAutoRefresh.value) logInterval = setInterval(fetchLogs, 10000);
                 };
-
                 const stopLogPolling = () => {
-                    logAutoRefresh.value = false;
-                    if (logInterval) {
-                        clearInterval(logInterval);
-                        logInterval = null;
-                    }
+                    logView.stop();
+                    if (logInterval) { clearInterval(logInterval); logInterval = null; }
                 };
+                watch(logAutoRefresh, () => {
+                    if (currentMenu.value === 'logs' && currentLogTab.value === 'audit') {
+                        stopLogPolling(); startLogPolling();
+                    }
+                });
 
                 const stopManagePolling = () => {
                     if (manageInterval) {
@@ -9177,6 +9593,79 @@
                     }
                 };
 
+                const createBackup = async () => {
+                    if (backupBusy.value) return;
+                    if (backupPassword.value.length < 8) {
+                        openAlert('备份密码至少需要 8 个字符', 'error');
+                        return;
+                    }
+                    backupBusy.value = true;
+                    try {
+                        const res = await fetch('index.php?action=create_backup', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ password: backupPassword.value })
+                        });
+                        const contentType = res.headers.get('Content-Type') || '';
+                        if (!res.ok || contentType.includes('application/json')) {
+                            const data = await res.json().catch(() => ({}));
+                            openAlert(data.error || data.message || '备份创建失败', 'error');
+                            return;
+                        }
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `ecs-controller-backup-${new Date().toISOString().slice(0, 10)}.ecsbkp`;
+                        document.body.appendChild(link);
+                        link.click();
+                        link.remove();
+                        URL.revokeObjectURL(url);
+                        openAlert('加密备份已下载', 'success');
+                    } catch (error) {
+                        console.error('Create backup failed', error);
+                        openAlert('备份请求失败', 'error');
+                    } finally {
+                        backupBusy.value = false;
+                    }
+                };
+
+                const restoreBackup = async () => {
+                    if (backupBusy.value || !backupFile.value) return;
+                    if (backupPassword.value.length < 8) {
+                        openAlert('请输入备份密码，至少 8 个字符', 'error');
+                        return;
+                    }
+                    const confirmed = await askConfirm(
+                        '恢复会覆盖当前账号、系统设置、流量历史和 Passkey，并清除当前登录会话。恢复成功后需要使用备份中的管理员凭据重新登录。确定继续吗？',
+                        { title: '确认恢复备份', confirmLabel: '确认恢复' }
+                    );
+                    if (!confirmed) return;
+
+                    const formData = new FormData();
+                    formData.append('password', backupPassword.value);
+                    formData.append('backup', backupFile.value);
+                    backupBusy.value = true;
+                    try {
+                        const res = await fetch('index.php?action=restore_backup', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok || !data.success) {
+                            openAlert(data.error || data.message || '备份恢复失败', 'error');
+                            return;
+                        }
+                        openAlert(data.error || data.message || '备份已恢复，正在重新加载', 'success');
+                        window.setTimeout(() => window.location.reload(), 800);
+                    } catch (error) {
+                        console.error('Restore backup failed', error);
+                        openAlert('恢复请求失败', 'error');
+                    } finally {
+                        backupBusy.value = false;
+                    }
+                };
+
                 const uploadLogo = async (event) => {
                     const file = event.target.files?.[0];
                     event.target.value = '';
@@ -9197,7 +9686,11 @@
                         }
 
                         config.value.AppBrand.logo_url = data.url || '';
-                        markConfigClean();
+                        if (configBaseline.value) {
+                            const baseline = JSON.parse(configBaseline.value);
+                            baseline.AppBrand = { ...baseline.AppBrand, logo_url: config.value.AppBrand.logo_url };
+                            configBaseline.value = buildSettingsSnapshot(baseline);
+                        }
                         openAlert('Logo 已更新', 'success');
                     } catch (error) {
                         console.error('Upload logo failed', error);
@@ -9386,6 +9879,7 @@
                 };
 
                 const openCreateAccountModal = () => {
+                    closeAccountTestModal();
                     accountModalMode.value = 'create';
                     editingAccountIndex.value = -1;
                     accountDraft.value = createDefaultAccount();
@@ -9394,6 +9888,7 @@
                 };
 
                 const openEditAccountModal = (index) => {
+                    closeAccountTestModal();
                     accountModalMode.value = 'edit';
                     editingAccountIndex.value = index;
                     accountDraft.value = {
@@ -9406,8 +9901,8 @@
 
                 const closeAccountModal = () => {
                     showAccountModal.value = false;
+                    closeAccountTestModal();
                     savingAccountModal.value = false;
-                    testingAccountDraft.value = false;
                     accountDraftTestResult.value = null;
                     editingAccountIndex.value = -1;
                     accountDraft.value = createDefaultAccount();
@@ -9527,39 +10022,43 @@
                 };
 
                 const testAccountDraft = async () => {
-                    if (!validateAccountDraft()) return;
-                    testingAccountDraft.value = true;
+                    if (testingAccountDraft.value) return;
+                    const draft = { ...accountDraft.value };
+                    accountTestContext.value = {
+                        remark: draft.remark,
+                        region: aliyunRegions.find(region => region.id === draft.regionId)?.name || draft.regionId || '未选择区域',
+                        site: getSiteTypeLabel(draft.siteType)
+                    };
                     accountDraftTestResult.value = null;
+                    showAccountTestModal.value = true;
+                    Vue.nextTick(() => accountTestClose.value?.focus());
+                    if (!draft.AccessKeyId || !draft.AccessKeySecret || !draft.regionId) {
+                        accountDraftTestResult.value = { status: 'error', message: '请先填写 AK ID、AK Secret 并选择区域', checks: [] };
+                        return;
+                    }
+                    const controller = new AbortController();
+                    accountTestController = controller;
+                    testingAccountDraft.value = true;
                     try {
                         const res = await fetch('index.php?action=test_account', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ account: accountDraft.value })
+                            body: JSON.stringify({ account: draft }),
+                            signal: controller.signal
                         });
                         const data = await res.json();
-                        if (!res.ok || !data.success) {
-                            accountDraftTestResult.value = {
-                                success: false,
-                                message: data.message || '账号测试失败',
-                                monitorStatus: 'warning',
-                                monitorMessage: data.message || '账号测试失败'
-                            };
-                            openAlert(data.message || '账号测试失败', 'error');
-                            return;
-                        }
-                        accountDraftTestResult.value = data;
-                        openAlert(data.monitorStatus === 'warning' ? '账号测试完成，云监控权限待补充' : '账号测试通过', data.monitorStatus === 'warning' ? 'info' : 'success');
+                        if (accountTestController !== controller || controller.signal.aborted) return;
+                        accountDraftTestResult.value = res.ok && Array.isArray(data.checks)
+                            ? data
+                            : { status: 'error', message: data.message || '账号权限检查失败，请稍后重试', checks: [] };
                     } catch (error) {
-                        console.error('Test account failed', error);
-                        accountDraftTestResult.value = {
-                            success: false,
-                            message: '账号测试请求失败，请稍后重试',
-                            monitorStatus: 'warning',
-                            monitorMessage: '账号测试请求失败，请稍后重试'
-                        };
-                        openAlert('账号测试请求失败，请稍后重试', 'error');
+                        if (accountTestController !== controller || controller.signal.aborted) return;
+                        accountDraftTestResult.value = { status: 'error', message: '账号权限检查请求失败，请检查网络后重试', checks: [] };
                     } finally {
-                        testingAccountDraft.value = false;
+                        if (accountTestController === controller) {
+                            testingAccountDraft.value = false;
+                            accountTestController = null;
+                        }
                     }
                 };
 
@@ -10229,6 +10728,7 @@
                         passkeyCount.value = Number(data.passkey_count || 0);
                         passkeyAvailable.value = !!data.passkey_enabled;
                         passwordLoginEnabled.value = data.password_login_enabled !== false;
+                        config.value.AppBrand.name = data.brand?.name || defaultBrandName;
                         config.value.AppBrand.logo_url = data.brand?.logo_url || '';
                         initialized.value = !!data.initialized;
                         if (initialized.value) {
@@ -10282,12 +10782,7 @@
                     Unknown: '未知'
                 }[status] || '未知');
 
-                const logTypeLabel = (type) => ({
-                    info: '信息',
-                    warning: '提醒',
-                    error: '错误',
-                    heartbeat: '检测'
-                }[type] || '信息');
+                const logTypeLabel = ECSLogView.levelLabel;
 
                 const reloadPage = () => {
                     persistNavigationState();
@@ -10310,7 +10805,7 @@
                     }
 
                     if (menu === 'groups' && isAdmin.value) {
-                        await Promise.all([fetchConfig(), fetchAllInstances(false)]);
+                        await Promise.all([fetchConfig(), fetchAllInstances(false), fetchRotationDNSStatus()]);
                     }
 
                     if (menu === 'logs' && isAdmin.value) {
@@ -10356,6 +10851,10 @@
 
                 watch(brandLogoUrl, (url) => {
                     updateFavicon(url);
+                }, { immediate: true });
+
+                watch(appBrandName, (name) => {
+                    updateDocumentTitle(name);
                 }, { immediate: true });
 
                 watch(() => ecsCreateDraft.value.accountGroupKey, () => {
@@ -10454,9 +10953,11 @@
                 });
 
                 onUnmounted(() => {
+                    accountTestController?.abort();
                     teardownMobileNavScroll();
                     document.removeEventListener('mouseover', updateTableTooltipVisibility);
                     stopLogPolling();
+                    logView.dispose();
                     stopManagePolling();
                     stopAccountPolling();
                     stopRuntimePolling();
@@ -10502,6 +11003,7 @@
                     updateScreenCompleted,
                     hasAvailableUpdate,
                     hasVersionUpdate,
+                    appBrandName,
                     brandLogoUrl,
                     cronWarning,
                     criticalError,
@@ -10519,6 +11021,16 @@
                     shutdownModeOptions,
                     rotationInstanceOptions,
                     accountDraftTestResult,
+                    showAccountTestModal,
+                    accountTestContext,
+                    accountTestDialog,
+                    accountTestClose,
+                    accountTestTrigger,
+                    accountTestGroups,
+                    permissionStatusText,
+                    accountTestStatusText,
+                    closeAccountTestModal,
+                    trapAccountTestFocus,
                     accountModalMode,
                     billingDetails,
                     billingHistoryDays,
@@ -10532,11 +11044,19 @@
                     fetchingAllInstances,
                     filteredManagedInstances,
                     filteredRotationGroups,
+                    rotationDNSResults,
+                    rotationDNSBusy,
+                    rotationDNSLabel,
+                    syncRotationDNS,
                     initialized,
                     initialWorkspaceLoading,
                     isAdmin,
                     loadingCheckInit,
                     logAutoRefresh,
+                    logView,
+                    logViewport,
+                    auditLogs,
+                    selectLogTab,
                     menuItems,
                     settingsItems,
                     settingsDirty,
@@ -10584,6 +11104,9 @@
                     showCreateEcsModal,
                     sendingEmail,
                     setupData,
+                    backupPassword,
+                    backupFile,
+                    backupBusy,
                     showAccountModal,
                     showRotationGroupModal,
                     showInstanceScheduleModal,
@@ -10611,6 +11134,7 @@
                     formatCurrencyValue,
                     formatBillingAmount,
                     billingUsagePresentation,
+                    billingItemLabels,
                     formatInstanceSpec,
                     formatPublicBandwidth,
                     formatTrafficValue,
@@ -10676,6 +11200,8 @@
                     deleteInstance,
                     removeAccountRow,
                     saveConfig,
+                    createBackup,
+                    restoreBackup,
                     uploadLogo,
                     clearLogo,
                     sendTestEmail,

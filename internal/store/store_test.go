@@ -134,6 +134,68 @@ func TestSaveGroupsRejectsDuplicateAccountRegion(t *testing.T) {
 	}
 }
 
+func TestUpsertAccountKeepsOneActiveRowPerCloudInstance(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	first := app.Account{AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-test", GroupKey: "group-1", InstanceID: "i-1", InstanceStatus: "Running", InstanceName: "first"}
+	if err := s.UpsertAccount(first); err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	second.InstanceStatus = "Stopped"
+	second.InstanceName = "updated"
+	if err := s.UpsertAccount(second); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := s.LoadAccounts(false)
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("active accounts=%#v err=%v", accounts, err)
+	}
+	if accounts[0].InstanceStatus != "Stopped" || accounts[0].InstanceName != "updated" {
+		t.Fatalf("existing instance was not updated: %#v", accounts[0])
+	}
+}
+
+func TestOpenRetiresLegacyDuplicateActiveInstances(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertAccount(app.Account{AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-test", GroupKey: "group-1", InstanceID: "i-1", InstanceStatus: "Running"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(`DROP INDEX idx_accounts_active_instance`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(`INSERT INTO accounts(access_key_id,access_key_secret,region_id,group_key,instance_id,instance_status,is_deleted) VALUES('ak','','cn-test','group-1','i-1','Running',0)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	visible, err := s.LoadAccounts(false)
+	if err != nil || len(visible) != 1 || visible[0].ID != 1 {
+		t.Fatalf("visible accounts=%#v err=%v", visible, err)
+	}
+	all, err := s.LoadAccounts(true)
+	if err != nil || len(all) != 2 || all[1].IsDeleted != 2 || all[1].CloudPresence != "retired_duplicate" {
+		t.Fatalf("deduplicated accounts=%#v err=%v", all, err)
+	}
+	if _, err := s.DB.Exec(`INSERT INTO accounts(group_key,instance_id,is_deleted) VALUES('group-1','i-1',0)`); err == nil {
+		t.Fatal("active instance uniqueness index was not recreated")
+	}
+}
+
 func TestPasskeyCredentialsAndChallengesAreEncryptedAndOneTime(t *testing.T) {
 	s, err := Open(t.TempDir())
 	if err != nil {
@@ -331,8 +393,82 @@ func TestRemoveAccountsOutsideGroupsOnlyRemovesLocalRecords(t *testing.T) {
 		t.Fatalf("removed account remains visible: %#v", accounts)
 	}
 	all, err := s.LoadAccounts(true)
-	if err != nil || len(all) != 1 || all[0].InstanceStatus != "Released" || all[0].IsDeleted != 2 {
-		t.Fatalf("local record was not retained as released: %#v %v", all, err)
+	if err != nil || len(all) != 0 {
+		t.Fatalf("local record was not permanently removed: %#v %v", all, err)
+	}
+}
+
+func TestDeleteInstanceDataPurgesScopedRecordsButKeepsAccountGroup(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	group := app.AccountGroup{GroupKey: "g", AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-test", MaxTraffic: 200}
+	if err := s.SaveGroups([]app.AccountGroup{group}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertAccount(app.Account{AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-test", GroupKey: "g", InstanceID: "i-delete"}); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := s.LoadAccounts(false)
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("load account: %#v err=%v", accounts, err)
+	}
+	id := accounts[0].ID
+	if err := s.AddTrafficHistory(id, 1.25, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetBillingCache(id, "bill_overview", "2026-08", map[string]any{"monthly_cost": 1.25}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetInstanceTraffic(id, "i-delete", "2026-08", 1024, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnqueueJob("delete-job", "delete_instance", fmt.Sprint(id), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTelegramActionToken("token", "user", "chat", "start", id, "{}", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask("task", "", "g", "cn-test", "ecs.test", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTask("task", map[string]any{"instance_id": "i-delete"}); err != nil {
+		t.Fatal(err)
+	}
+	s.AddLog("info", "i-delete was removed")
+	if err := s.DeleteInstanceData(id); err != nil {
+		t.Fatal(err)
+	}
+	if accounts, err := s.LoadAccounts(true); err != nil || len(accounts) != 0 {
+		t.Fatalf("instance row remained: %#v err=%v", accounts, err)
+	}
+	for _, item := range []struct {
+		table string
+		where string
+		args  []any
+	}{
+		{"traffic_hourly", "account_id=?", []any{id}},
+		{"traffic_daily", "account_id=?", []any{id}},
+		{"billing_cache", "account_id=?", []any{id}},
+		{"instance_traffic_usage", "account_id=?", []any{id}},
+		{"telegram_action_tokens", "account_id=?", []any{id}},
+		{"jobs", "entity_key=?", []any{fmt.Sprint(id)}},
+		{"ecs_create_tasks", "instance_id=?", []any{"i-delete"}},
+		{"logs", "instr(message,?)>0", []any{"i-delete"}},
+	} {
+		var count int
+		if err := s.DB.QueryRow(`SELECT COUNT(*) FROM `+item.table+` WHERE `+item.where, item.args...).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", item.table, err)
+		}
+		if count != 0 {
+			t.Errorf("%s retained %d instance records", item.table, count)
+		}
+	}
+	groups, err := s.LoadGroups()
+	if err != nil || len(groups) != 1 || groups[0].AccessKeySecret != "sk" {
+		t.Fatalf("account group was removed with instance: %#v err=%v", groups, err)
 	}
 }
 

@@ -17,6 +17,10 @@ import (
 )
 
 type fakeCloud struct {
+	describeErr                                                     error
+	inventoryInstances                                              []cloud.Instance
+	inventoryErr                                                    error
+	inventoryCalls                                                  int
 	runErr, assocErr, startErr, stopErr, deleteErr                  error
 	deleted, allocated, associated, unassociated, released, cleaned int
 	describeStatus                                                  string
@@ -73,13 +77,64 @@ func (f *fakeCloud) DescribeZones(context.Context, string) ([]map[string]any, er
 	return []map[string]any{{"ZoneId": "zone-1"}}, nil
 }
 func (f *fakeCloud) DescribeInstances(context.Context, string) ([]cloud.Instance, error) {
-	return nil, nil
+	f.inventoryCalls++
+	return f.inventoryInstances, f.inventoryErr
 }
 func (f *fakeCloud) DescribeInstance(context.Context, string, string) (*cloud.Instance, error) {
+	if f.describeErr != nil {
+		return nil, f.describeErr
+	}
 	if f.describeStatus != "" {
 		return &cloud.Instance{Status: f.describeStatus}, nil
 	}
+	if f.inventoryInstances != nil {
+		return nil, &cloud.APIError{Code: "InvalidInstanceId.NotFound", HTTPStatus: 404}
+	}
 	return nil, nil
+}
+
+func TestAutomaticInventoryReconciliationDiscoversAndRetiresInstances(t *testing.T) {
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	group := app.AccountGroup{GroupKey: "g", AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-test", MaxTraffic: 200}
+	if err := s.SaveGroups([]app.AccountGroup{group}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertAccount(app.Account{AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-test", GroupKey: "g", InstanceID: "i-old", InstanceStatus: "Running"}); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeCloud{inventoryInstances: []cloud.Instance{{ID: "i-new", Status: "Running"}}}
+	w := &Worker{Store: s, CloudFactory: func(app.AccountGroup) cloud.Client { return fake }}
+	start := time.Date(2026, 8, 31, 12, 0, 0, 0, time.Local)
+
+	w.reconcileCloudInventory(context.Background(), start)
+	accounts, err := s.LoadAccounts(false)
+	if err != nil || len(accounts) != 2 {
+		t.Fatalf("first inventory accounts=%#v err=%v", accounts, err)
+	}
+	if fake.inventoryCalls != 1 {
+		t.Fatalf("inventory calls=%d", fake.inventoryCalls)
+	}
+
+	w.reconcileCloudInventory(context.Background(), start.Add(5*time.Minute))
+	if fake.inventoryCalls != 1 {
+		t.Fatalf("inventory interval was not enforced: calls=%d", fake.inventoryCalls)
+	}
+
+	w.reconcileCloudInventory(context.Background(), start.Add(11*time.Minute))
+	accounts, err = s.LoadAccounts(false)
+	if err != nil || len(accounts) != 1 || accounts[0].InstanceID != "i-new" {
+		t.Fatalf("retired inventory accounts=%#v err=%v", accounts, err)
+	}
+	if fake.inventoryCalls != 2 {
+		t.Fatalf("second due inventory did not run: calls=%d", fake.inventoryCalls)
+	}
+	if fake.deleted != 0 || fake.unassociated != 0 || fake.released != 0 {
+		t.Fatalf("inventory reconciliation mutated cloud resources: %+v", fake)
+	}
 }
 func (f *fakeCloud) StartInstance(context.Context, string, string) error {
 	f.started++
@@ -775,8 +830,8 @@ func TestDeleteTaskReleasesEIPAndMarksAccount(t *testing.T) {
 		t.Fatalf("release calls: %#v", fake)
 	}
 	account, err := s.Account(id, true)
-	if err != nil || account.IsDeleted != 2 || account.InstanceStatus != "Released" {
-		t.Fatalf("deleted account: %#v %v", account, err)
+	if err == nil || account != nil {
+		t.Fatalf("deleted account remained: %#v %v", account, err)
 	}
 	groups, err := s.LoadRotationGroups()
 	if err != nil || len(groups) != 1 || len(groups[0].Members) != 0 {
@@ -807,7 +862,7 @@ func TestFinalizeMissingInstanceCleansLocalReleaseResidual(t *testing.T) {
 		t.Fatal(err)
 	}
 	account, err := s.Account(id, true)
-	if err != nil || account.IsDeleted != 2 || account.InstanceStatus != "Released" {
+	if err == nil || account != nil {
 		t.Fatalf("missing account was not finalized: %#v %v", account, err)
 	}
 	groups, err := s.LoadRotationGroups()

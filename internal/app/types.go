@@ -101,6 +101,10 @@ type Account struct {
 	ProtectionSuspended      bool
 	ProtectionSuspendReason  string
 	ProtectionNotifiedAt     int64
+	LastSeenAt               int64
+	MissingCount             int
+	MissingSince             int64
+	CloudPresence            string
 	IsDeleted                int
 }
 

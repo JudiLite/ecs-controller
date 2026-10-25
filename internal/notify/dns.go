@@ -23,9 +23,11 @@ type DNSUpdateConfig struct {
 
 func UpdateDNSRecord(ctx context.Context, config DNSUpdateConfig, address string) error {
 	domain := strings.ToLower(strings.Trim(strings.TrimSpace(config.Domain), "."))
-	if net.ParseIP(strings.TrimSpace(address)) == nil {
-		return fmt.Errorf("公网 IP 无效")
+	parsedIP := net.ParseIP(strings.TrimSpace(address))
+	if parsedIP == nil || parsedIP.To4() == nil {
+		return fmt.Errorf("公网 IPv4 无效")
 	}
+	address = parsedIP.String()
 	root, record, err := splitDNSName(domain)
 	if err != nil {
 		return err

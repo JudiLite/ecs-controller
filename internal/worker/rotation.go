@@ -56,26 +56,6 @@ func (w *Worker) runRotationSchedule(ctx context.Context, client cloud.Client, a
 		state.LastStartDate = startDate
 	}
 
-	if activeWindow && account.InstanceStatus == "Running" && state.LastStartDate != "" && state.DNSUpdatedDate != state.LastStartDate {
-		address := account.PublicIP
-		if account.PublicIPMode == "eip" && account.EIPAddress != "" {
-			address = account.EIPAddress
-		}
-		if address == "" {
-			dnsErr := fmt.Errorf("实例没有公网 IP")
-			w.rotationAlert(ctx, group, account, &state, "分组 DDNS 更新失败: "+dnsErr.Error())
-			w.audit(app.AuditSourceRotation, "ddns_update", "rotation_group", group.ID, "更新分组域名解析", dnsErr)
-		} else if err := notify.UpdateDNSRecord(ctx, rotationDNSConfig(*group), address); err != nil {
-			w.rotationAlert(ctx, group, account, &state, "分组 DDNS 更新失败: "+err.Error())
-			w.audit(app.AuditSourceRotation, "ddns_update", "rotation_group", group.ID, "更新分组域名解析", err)
-		} else {
-			state.DNSUpdatedDate = state.LastStartDate
-			state.LastError = ""
-			w.Store.AddLog("info", fmt.Sprintf("分组 [%s] DDNS 已切换 %s -> %s", group.Name, group.Domain, address))
-			w.audit(app.AuditSourceRotation, "ddns_update", "rotation_group", group.ID, "更新分组域名解析", nil)
-		}
-	}
-
 	if stopDue && (!startExists || stopAt.After(startAt)) {
 		switch account.InstanceStatus {
 		case "Running":

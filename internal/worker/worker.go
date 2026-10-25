@@ -12,6 +12,8 @@ import (
 
 	"github.com/JudiLite/ecs-controller/internal/app"
 	"github.com/JudiLite/ecs-controller/internal/cloud"
+	"github.com/JudiLite/ecs-controller/internal/ddns"
+	"github.com/JudiLite/ecs-controller/internal/inventory"
 	"github.com/JudiLite/ecs-controller/internal/notify"
 	"github.com/JudiLite/ecs-controller/internal/store"
 )
@@ -19,6 +21,7 @@ import (
 type Worker struct {
 	Store                   *store.Store
 	CloudFactory            func(app.AccountGroup) cloud.Client
+	DNSUpdater              ddns.Updater
 	InventorySync           func(context.Context) (int, error)
 	Log                     *log.Logger
 	telegramConflictLastLog int64
@@ -30,6 +33,8 @@ func (w *Worker) cloudClient(group app.AccountGroup) cloud.Client {
 	}
 	return w.CloudFactory(group)
 }
+
+const cloudInventoryInterval = 10 * time.Minute
 
 func cmsTrafficErrorMessage(err error) string {
 	if cloud.IsMetricNoDataError(err) {
@@ -57,9 +62,51 @@ func (w *Worker) Monitor(ctx context.Context, interval time.Duration) {
 	}
 }
 
+func (w *Worker) reconcileCloudInventory(ctx context.Context, now time.Time) {
+	groups, err := w.Store.LoadGroups()
+	if err != nil {
+		w.Store.AddLog("warning", "读取云端对账账号失败: "+err.Error())
+		return
+	}
+	for _, group := range groups {
+		attemptKey := "inventory_reconcile_attempt_" + group.GroupKey
+		lastAttempt, _ := strconv.ParseInt(w.Store.GetSetting(attemptKey, "0"), 10, 64)
+		if lastAttempt > 0 && now.Unix()-lastAttempt < int64(cloudInventoryInterval.Seconds()) {
+			continue
+		}
+		// Record attempts as well as successes so a temporary provider failure
+		// cannot turn the once-per-ten-minute inventory call into a retry storm.
+		_ = w.Store.SetSetting(attemptKey, strconv.FormatInt(now.Unix(), 10))
+		client := w.cloudClient(group)
+		if client == nil {
+			continue
+		}
+		syncCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+		var logf func(string, ...any)
+		if w.Log != nil {
+			logf = w.Log.Printf
+		}
+		result, syncErr := inventory.SyncGroup(syncCtx, w.Store, group, client, now, logf, true)
+		cancel()
+		if syncErr != nil {
+			w.Store.AddLog("warning", fmt.Sprintf("云端实例自动对账失败 [%s/%s]: %v", group.Remark, group.RegionID, syncErr))
+			continue
+		}
+		_ = w.Store.SetSetting("inventory_reconcile_success_"+group.GroupKey, strconv.FormatInt(now.Unix(), 10))
+		if result.Purged > 0 || result.Recovered > 0 {
+			w.Store.AddLog("info", fmt.Sprintf("云端实例自动对账完成 [%s/%s]：云端 %d 台，清理 %d 台，恢复 %d 台", group.Remark, group.RegionID, result.RemoteCount, result.Purged, result.Recovered))
+		}
+	}
+}
+
 func (w *Worker) runMonitorCycle(ctx context.Context, interval time.Duration) {
+	w.Store.Operations.RLock()
+	defer w.Store.Operations.RUnlock()
 	w.Store.SetLastRun()
 	now := time.Now()
+	if w.InventorySync == nil {
+		w.reconcileCloudInventory(ctx, now)
+	}
 	started := w.beginRuntime(runtimeInstanceMonitor, "正在检查实例状态与流量", now.Add(interval))
 	if err := w.Store.ResetMonthlyTraffic(); err != nil {
 		w.Store.AddLog("warning", "月度流量状态重置失败: "+err.Error())
@@ -159,6 +206,7 @@ func (w *Worker) monitorAccount(ctx context.Context, account app.Account, now ti
 	transient := account.InstanceStatus == "Starting" || account.InstanceStatus == "Stopping" || account.InstanceStatus == "Pending" || account.InstanceStatus == "Unknown"
 	shouldRefresh := account.UpdatedAt <= 0 || now.Unix()-account.UpdatedAt >= apiInterval || transient || now.Minute() == 0
 	if !shouldRefresh {
+		defer func() { w.syncRotationDNS(ctx, account, now) }()
 		w.runCachedAutomation(ctx, client, &account, now, threshold, thresholdAction, shutdownMode, keepAlive, monthlyAutoStart)
 		return ctx.Err()
 	}
@@ -186,6 +234,8 @@ func (w *Worker) monitorAccount(ctx context.Context, account app.Account, now ti
 		return describeErr
 	}
 	account.InstanceStatus, account.PublicIP, account.PrivateIP, account.InstanceType = instance.Status, instance.PublicIP, instance.PrivateIP, instance.InstanceType
+	defer func() { w.syncRotationDNS(ctx, account, now) }()
+	account.LastSeenAt, account.MissingCount, account.MissingSince, account.CloudPresence = now.Unix(), 0, 0, "present"
 	if account.PublicIPMode == "eip" && account.EIPAddress != "" {
 		account.PublicIP = account.EIPAddress
 	}
@@ -272,6 +322,11 @@ func (w *Worker) queueMissingInstanceCleanup(account app.Account, describeErr er
 	}
 	w.Store.AddLog("info", "已同步移除云端不存在的实例: "+account.InstanceID)
 	return true, nil
+}
+
+func (w *Worker) purgeMissingAccount(ctx context.Context, account app.Account) error {
+	_, err := w.queueMissingInstanceCleanup(account, &cloud.APIError{Code: "InvalidInstanceId.NotFound"})
+	return err
 }
 
 func (w *Worker) protectionTraffic(ctx context.Context, client cloud.Client, account app.Account, cmsTraffic float64) (float64, string) {
@@ -602,84 +657,91 @@ func (w *Worker) Run(ctx context.Context) {
 			return
 		default:
 		}
-		job, err := w.Store.ClaimJob(2 * time.Minute)
-		if err != nil {
-			w.Log.Printf("claim job: %v", err)
-			started := w.beginRuntime(runtimeJobQueue, "正在读取后台任务", time.Time{})
-			w.finishRuntime(runtimeJobQueue, started, "后台任务读取失败", time.Time{}, err)
-			sleep(ctx, 2*time.Second)
-			continue
+		if delay := w.runNextJob(ctx); delay > 0 {
+			sleep(ctx, delay)
 		}
-		if job == nil {
-			sleep(ctx, time.Second)
-			continue
-		}
-		started := w.beginRuntime(runtimeJobQueue, "正在执行 "+job.Kind, time.Time{})
-		if err := w.execute(ctx, job); err != nil {
-			w.Log.Printf("job %s: %v", job.JobID, err)
-			if job.Kind == "delete_instance" && cloud.IsNotFound(err) {
-				if finalizeErr := w.finalizeMissingInstance(ctx, job); finalizeErr == nil {
-					_ = w.Store.FinishJob(job.JobID)
-					w.Store.AddLog("info", "云端实例已不存在，已清理本地释放残留: "+job.EntityKey)
-					w.audit(app.AuditSourceJob, "instance_release", "instance", job.EntityKey, "云端实例已不存在，本地释放任务已完成", nil)
-					w.finishRuntime(runtimeJobQueue, started, "云端实例已不存在，已清理本地残留", time.Time{}, nil)
-					w.setRuntimeWaiting(runtimeJobQueue, "后台任务队列空闲", time.Time{})
-					continue
-				}
-			}
-			maxAttempts := 5
-			if job.Kind == "create_ecs" {
-				message := strings.ToLower(err.Error())
-				for _, code := range []string{"quotaexceeded.vpc", "idempotentparametermismatch", "invalidaccountstatus.notenoughbalance", "invalidcidrblock.overlapped", "invalidparameter.instancetypenotsupport", "insufficientstock", "not_enough_stock"} {
-					if strings.Contains(message, code) {
-						maxAttempts = 1
-						break
-					}
-				}
-			}
-			if job.Kind == "delete_instance" {
-				maxAttempts = 20
-			}
-			if job.Kind == "cleanup_eip" {
-				maxAttempts = 20
-			}
-			if job.Attempts < maxAttempts {
-				_ = w.Store.RetryJob(job.JobID, retryDelay(job.Attempts), err.Error())
-				w.finishRuntime(runtimeJobQueue, started, "任务执行失败，已进入重试", time.Time{}, err)
-			} else {
-				if job.Kind == "delete_instance" {
-					if id, parseErr := strconv.ParseInt(job.EntityKey, 10, 64); parseErr == nil {
-						_ = w.Store.MarkReleaseFailed(id)
-					}
-				}
-				_ = w.Store.FailJob(job.JobID, err.Error())
-				w.Store.AddLog("error", fmt.Sprintf("后台任务最终失败 [%s/%s]（已重试 %d 次）：%s", job.Kind, job.EntityKey, job.Attempts, err.Error()))
-				w.finishRuntime(runtimeJobQueue, started, "任务已达到最大重试次数", time.Time{}, err)
-				action, entityType, summary := "job_execute", "job", "后台任务执行失败"
-				if job.Kind == "create_ecs" {
-					action, entityType, summary = "ecs_create", "ecs_task", "ECS 创建任务失败"
-				} else if job.Kind == "delete_instance" {
-					action, entityType, summary = "instance_release", "instance", "实例释放任务失败"
-				} else if job.Kind == "cleanup_eip" {
-					action, entityType, summary = "eip_cleanup", "eip", "旧 EIP 清理任务失败"
-				}
-				w.audit(app.AuditSourceJob, action, entityType, job.EntityKey, summary, err)
-			}
-			continue
-		}
-		_ = w.Store.FinishJob(job.JobID)
-		action, entityType, summary := "job_execute", "job", "后台任务执行完成"
-		if job.Kind == "create_ecs" {
-			action, entityType, summary = "ecs_create", "ecs_task", "ECS 创建任务完成"
-		} else if job.Kind == "delete_instance" {
-			action, entityType, summary = "instance_release", "instance", "实例释放任务完成"
-		} else if job.Kind == "cleanup_eip" {
-			action, entityType, summary = "eip_cleanup", "eip", "旧 EIP 清理任务完成"
-		}
-		w.audit(app.AuditSourceJob, action, entityType, job.EntityKey, summary, nil)
-		w.finishRuntime(runtimeJobQueue, started, "已完成 "+job.Kind, time.Time{}, nil)
-		w.setRuntimeWaiting(runtimeJobQueue, "后台任务队列空闲", time.Time{})
 	}
+}
+
+func (w *Worker) runNextJob(ctx context.Context) time.Duration {
+	w.Store.Operations.RLock()
+	defer w.Store.Operations.RUnlock()
+	job, err := w.Store.ClaimJob(2 * time.Minute)
+	if err != nil {
+		w.Log.Printf("claim job: %v", err)
+		started := w.beginRuntime(runtimeJobQueue, "正在读取后台任务", time.Time{})
+		w.finishRuntime(runtimeJobQueue, started, "后台任务读取失败", time.Time{}, err)
+		return 2 * time.Second
+	}
+	if job == nil {
+		return time.Second
+	}
+	started := w.beginRuntime(runtimeJobQueue, "正在执行 "+job.Kind, time.Time{})
+	if err := w.execute(ctx, job); err != nil {
+		w.Log.Printf("job %s: %v", job.JobID, err)
+		if job.Kind == "delete_instance" && cloud.IsNotFound(err) {
+			if finalizeErr := w.finalizeMissingInstance(ctx, job); finalizeErr == nil {
+				_ = w.Store.FinishJob(job.JobID)
+				w.Store.AddLog("info", "云端实例已不存在，已清理本地释放残留: "+job.EntityKey)
+				w.audit(app.AuditSourceJob, "instance_release", "instance", job.EntityKey, "云端实例已不存在，本地释放任务已完成", nil)
+				w.finishRuntime(runtimeJobQueue, started, "云端实例已不存在，已清理本地残留", time.Time{}, nil)
+				w.setRuntimeWaiting(runtimeJobQueue, "后台任务队列空闲", time.Time{})
+				return 0
+			}
+		}
+		maxAttempts := 5
+		if job.Kind == "create_ecs" {
+			message := strings.ToLower(err.Error())
+			for _, code := range []string{"quotaexceeded.vpc", "idempotentparametermismatch", "invalidaccountstatus.notenoughbalance", "invalidcidrblock.overlapped", "invalidparameter.instancetypenotsupport", "insufficientstock", "not_enough_stock"} {
+				if strings.Contains(message, code) {
+					maxAttempts = 1
+					break
+				}
+			}
+		}
+		if job.Kind == "delete_instance" {
+			maxAttempts = 20
+		}
+		if job.Kind == "cleanup_eip" {
+			maxAttempts = 20
+		}
+		if job.Attempts < maxAttempts {
+			_ = w.Store.RetryJob(job.JobID, retryDelay(job.Attempts), err.Error())
+			w.finishRuntime(runtimeJobQueue, started, "任务执行失败，已进入重试", time.Time{}, err)
+		} else {
+			if job.Kind == "delete_instance" {
+				if id, parseErr := strconv.ParseInt(job.EntityKey, 10, 64); parseErr == nil {
+					_ = w.Store.MarkReleaseFailed(id)
+				}
+			}
+			_ = w.Store.FailJob(job.JobID, err.Error())
+			w.Store.AddLog("error", fmt.Sprintf("后台任务最终失败 [%s/%s]（已重试 %d 次）：%s", job.Kind, job.EntityKey, job.Attempts, err.Error()))
+			w.finishRuntime(runtimeJobQueue, started, "任务已达到最大重试次数", time.Time{}, err)
+			action, entityType, summary := "job_execute", "job", "后台任务执行失败"
+			if job.Kind == "create_ecs" {
+				action, entityType, summary = "ecs_create", "ecs_task", "ECS 创建任务失败"
+			} else if job.Kind == "delete_instance" {
+				action, entityType, summary = "instance_release", "instance", "实例释放任务失败"
+			} else if job.Kind == "cleanup_eip" {
+				action, entityType, summary = "eip_cleanup", "eip", "旧 EIP 清理任务失败"
+			}
+			w.audit(app.AuditSourceJob, action, entityType, job.EntityKey, summary, err)
+		}
+		return 0
+	}
+	_ = w.Store.FinishJob(job.JobID)
+	action, entityType, summary := "job_execute", "job", "后台任务执行完成"
+	if job.Kind == "create_ecs" {
+		action, entityType, summary = "ecs_create", "ecs_task", "ECS 创建任务完成"
+	} else if job.Kind == "delete_instance" {
+		action, entityType, summary = "instance_release", "instance", "实例释放任务完成"
+	} else if job.Kind == "cleanup_eip" {
+		action, entityType, summary = "eip_cleanup", "eip", "旧 EIP 清理任务完成"
+	}
+	w.audit(app.AuditSourceJob, action, entityType, job.EntityKey, summary, nil)
+	w.finishRuntime(runtimeJobQueue, started, "已完成 "+job.Kind, time.Time{}, nil)
+	w.setRuntimeWaiting(runtimeJobQueue, "后台任务队列空闲", time.Time{})
+	return 0
 }
 
 func (w *Worker) finalizeMissingInstance(ctx context.Context, job *store.Job) error {
@@ -693,10 +755,11 @@ func (w *Worker) finalizeMissingInstance(ctx context.Context, job *store.Job) er
 	}
 	if account.EIPManaged && account.EIPAllocationID != "" {
 		client := w.cloudClient(app.AccountGroup{AccessKeyID: account.AccessKeyID, AccessKeySecret: account.AccessKeySecret, RegionID: account.RegionID, SiteType: account.SiteType})
-		if client != nil {
-			if cleanupErr := cloud.CleanupEIP(ctx, client, account.RegionID, account.EIPAllocationID); cleanupErr != nil && !cloud.IsNotFound(cleanupErr) {
-				w.Store.AddLog("warning", "实例已不存在，但托管 EIP 清理仍需重试: "+cleanupErr.Error())
-			}
+		if client == nil {
+			return fmt.Errorf("cloud client is not configured for managed EIP cleanup")
+		}
+		if cleanupErr := cloud.CleanupEIP(ctx, client, account.RegionID, account.EIPAllocationID); cleanupErr != nil && !cloud.IsNotFound(cleanupErr) {
+			return fmt.Errorf("实例已不存在，但托管 EIP 清理仍需重试: %w", cleanupErr)
 		}
 	}
 	if err := w.Store.RemoveRotationMember(id); err != nil {

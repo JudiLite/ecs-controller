@@ -23,6 +23,7 @@ import (
 
 	"github.com/JudiLite/ecs-controller/internal/app"
 	"github.com/JudiLite/ecs-controller/internal/cloud"
+	"github.com/JudiLite/ecs-controller/internal/ddns"
 	"github.com/JudiLite/ecs-controller/internal/notify"
 	"github.com/JudiLite/ecs-controller/internal/store"
 )
@@ -30,6 +31,7 @@ import (
 type Server struct {
 	Store          *store.Store
 	CloudFactory   func(app.Account) cloud.Client
+	DNSUpdater     ddns.Updater
 	DataDir        string
 	Template       string
 	CookieSecure   bool
@@ -38,6 +40,7 @@ type Server struct {
 	mu             sync.Mutex
 	inventoryMu    sync.Mutex
 	updateMu       sync.Mutex
+	backupMu       sync.Mutex
 	previews       map[string]map[string]any
 	packageChecker func(githubRelease, string) bool
 	githubAPIBase  string
@@ -191,7 +194,7 @@ func (s *Server) serveTemplate(w http.ResponseWriter) {
 }
 func (s *Server) checkInit(w http.ResponseWriter) {
 	passkeyCount := s.Store.PasskeyCount()
-	s.json(w, 200, map[string]any{"initialized": s.Store.IsInitialized(), "password_login_enabled": s.passwordLoginEnabled(), "passkey_enabled": passkeyCount > 0, "passkey_count": passkeyCount, "brand": map[string]any{"logo_url": s.Store.GetSetting("app_logo_url", "")}})
+	s.json(w, 200, map[string]any{"initialized": s.Store.IsInitialized(), "password_login_enabled": s.passwordLoginEnabled(), "passkey_enabled": passkeyCount > 0, "passkey_count": passkeyCount, "brand": map[string]any{"name": s.Store.GetSetting("app_name", "ECS 控制台"), "logo_url": s.Store.GetSetting("app_logo_url", "")}})
 }
 
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +294,17 @@ func (s *Server) authenticatedAction(w http.ResponseWriter, r *http.Request, act
 		s.uploadLogo(w, r)
 		return
 	}
+	if action == "restore_backup" {
+		s.restoreBackup(w, r)
+		return
+	}
+	if action == "create_backup" {
+		data, _ := readJSON(r)
+		s.createBackup(w, r, data)
+		return
+	}
+	s.Store.Operations.RLock()
+	defer s.Store.Operations.RUnlock()
 	if action == "passkey_register_finish" {
 		s.passkeyRegisterFinish(w, r)
 		return
@@ -306,6 +320,10 @@ func (s *Server) authenticatedAction(w http.ResponseWriter, r *http.Request, act
 	switch action {
 	case "get_status":
 		s.status(w)
+	case "sync_rotation_dns":
+		s.syncRotationDNS(w, r, data)
+	case "get_rotation_dns_status":
+		s.rotationDNSStatus(w)
 	case "get_config":
 		s.config(w)
 	case "passkey_register_start":
@@ -327,15 +345,11 @@ func (s *Server) authenticatedAction(w http.ResponseWriter, r *http.Request, act
 	case "start_update":
 		s.startUpdate(w, r, data)
 	case "get_logs":
-		s.json(w, 200, map[string]any{"data": s.Store.Logs(r.URL.Query().Get("tab"), 20)})
+		s.getLogs(w, r)
 	case "get_audit_logs":
 		s.auditLogs(w, r)
 	case "clear_logs":
-		if err := s.Store.ClearLogs(stringValue(data["tab"])); err != nil {
-			s.error(w, 500, "清空失败")
-		} else {
-			s.json(w, 200, map[string]any{"success": true})
-		}
+		s.clearLogs(w, data)
 	case "get_history":
 		id := int64(number(r.URL.Query().Get("id"), 0))
 		if _, err := s.Store.Account(id, false); err != nil {
@@ -401,7 +415,7 @@ func (s *Server) authenticatedAction(w http.ResponseWriter, r *http.Request, act
 	case "fetch_instances":
 		s.fetchInstances(w, data)
 	case "test_account":
-		s.testAccount(w, data)
+		s.testAccount(w, r, data)
 	case "send_test_email", "send_test_telegram", "send_test_webhook":
 		s.testNotification(w, action, data)
 	default:
@@ -467,7 +481,7 @@ func (s *Server) config(w http.ResponseWriter) {
 			m.used = m.fallbackUsed
 		}
 	}
-	result := map[string]any{"admin_username": settings["admin_username"], "admin_password": "********", "admin_password_set": s.Store.IsInitialized(), "password_login_enabled": settingBool(settings["password_login_enabled"], true), "passkey_count": s.Store.PasskeyCount(), "traffic_threshold": numberString(settings["traffic_threshold"], 95), "shutdown_mode": fallback(settings["shutdown_mode"], "KeepCharging"), "threshold_action": fallback(settings["threshold_action"], "stop_and_notify"), "keep_alive": settings["keep_alive"] == "1", "monthly_auto_start": settings["monthly_auto_start"] == "1", "api_interval": numberString(settings["api_interval"], 600), "inventory_sync_enabled": settingBool(settings["inventory_sync_enabled"], true), "inventory_sync_interval": numberString(settings["inventory_sync_interval"], 3600), "enable_billing": settings["enable_billing"] == "1", "billing_cost_threshold": numberString(settings["billing_cost_threshold"], 0), "billing_balance_threshold": numberString(settings["billing_balance_threshold"], 0), "AppBrand": map[string]any{"logo_url": settings["app_logo_url"]}, "Notification": notificationSettings(settings), "RotationGroups": rotationGroups, "Accounts": []any{}}
+	result := map[string]any{"admin_username": settings["admin_username"], "admin_password": "********", "admin_password_set": s.Store.IsInitialized(), "password_login_enabled": settingBool(settings["password_login_enabled"], true), "passkey_count": s.Store.PasskeyCount(), "traffic_threshold": numberString(settings["traffic_threshold"], 95), "shutdown_mode": fallback(settings["shutdown_mode"], "KeepCharging"), "threshold_action": fallback(settings["threshold_action"], "stop_and_notify"), "keep_alive": settings["keep_alive"] == "1", "monthly_auto_start": settings["monthly_auto_start"] == "1", "api_interval": numberString(settings["api_interval"], 600), "inventory_sync_enabled": settingBool(settings["inventory_sync_enabled"], true), "inventory_sync_interval": numberString(settings["inventory_sync_interval"], 3600), "enable_billing": settings["enable_billing"] == "1", "billing_cost_threshold": numberString(settings["billing_cost_threshold"], 0), "billing_balance_threshold": numberString(settings["billing_balance_threshold"], 0), "AppBrand": map[string]any{"name": fallback(settings["app_name"], "ECS 控制台"), "logo_url": settings["app_logo_url"]}, "Notification": notificationSettings(settings), "RotationGroups": rotationGroups, "Accounts": []any{}}
 	items := result["Accounts"].([]any)
 	for _, g := range groups {
 		m := metrics[g.GroupKey]
@@ -740,7 +754,15 @@ func decodeBillingDetails(value any) ([]cloud.BillingDetail, error) {
 
 func enrichBillingDetails(items []cloud.BillingDetail, resources map[string]cloud.BillingResource) {
 	for index := range items {
-		resource, ok := resources[items[index].InstanceID]
+		resourceID := strings.TrimSpace(items[index].InstanceID)
+		resource, ok := resources[resourceID]
+		if !ok {
+			// Billing IDs can append region and charging attributes to an EIP ID.
+			// Match only an already fetched resource; never alter the bill's ID.
+			if baseID, _, hasAttributes := strings.Cut(resourceID, ";"); hasAttributes {
+				resource, ok = resources[strings.TrimSpace(baseID)]
+			}
+		}
 		if !ok {
 			continue
 		}
@@ -772,7 +794,7 @@ func (s *Server) status(w http.ResponseWriter) {
 		if label == "" {
 			label = a.AccessKeyID
 		}
-		data = append(data, map[string]any{"id": a.ID, "accountId": a.ID, "instanceId": a.InstanceID, "instanceName": a.InstanceName, "instanceType": a.InstanceType, "cpu": a.CPU, "memory": a.Memory, "osName": a.OSName, "region": a.RegionID, "regionId": a.RegionID, "regionName": a.RegionID, "status": a.InstanceStatus, "instanceStatus": a.InstanceStatus, "publicIp": a.PublicIP, "privateIp": a.PrivateIP, "trafficUsed": a.TrafficUsed, "flow_used": a.TrafficUsed, "flow_total": a.MaxTraffic, "percentageOfUse": percent, "rate95": percent >= float64(numberString(s.Store.GetSetting("traffic_threshold", ""), 95)), "maxTraffic": a.MaxTraffic, "remark": a.Remark, "accountLabel": label + " / " + a.RegionID, "groupKey": a.GroupKey, "healthStatus": a.HealthStatus, "trafficStatus": a.TrafficAPIStatus, "trafficMessage": a.TrafficAPIMessage, "trafficScope": trafficScope(a.TrafficAPIStatus), "internetMaxBandwidthOut": a.InternetBandwidth, "publicIpMode": a.PublicIPMode, "eipAllocationId": a.EIPAllocationID, "eipAddress": a.EIPAddress, "eipManaged": a.EIPManaged, "hasInitialCredential": credentialInstances[a.InstanceID], "operationLocked": a.IsDeleted == 1, "scheduleEnabled": a.ScheduleEnabled, "scheduleStartEnabled": a.ScheduleStartEnabled, "scheduleStopEnabled": a.ScheduleStopEnabled, "startTime": a.StartTime, "stopTime": a.StopTime, "stoppedMode": a.StoppedMode, "scheduleBlockedByTraffic": a.ScheduleBlockedByTraffic})
+		data = append(data, map[string]any{"id": a.ID, "accountId": a.ID, "instanceId": a.InstanceID, "instanceName": a.InstanceName, "instanceType": a.InstanceType, "cpu": a.CPU, "memory": a.Memory, "osName": a.OSName, "region": a.RegionID, "regionId": a.RegionID, "regionName": a.RegionID, "status": a.InstanceStatus, "instanceStatus": a.InstanceStatus, "publicIp": a.PublicIP, "privateIp": a.PrivateIP, "trafficUsed": a.TrafficUsed, "flow_used": a.TrafficUsed, "flow_total": a.MaxTraffic, "percentageOfUse": percent, "rate95": percent >= float64(numberString(s.Store.GetSetting("traffic_threshold", ""), 95)), "maxTraffic": a.MaxTraffic, "remark": a.Remark, "accountLabel": label + " / " + a.RegionID, "groupKey": a.GroupKey, "healthStatus": a.HealthStatus, "trafficStatus": a.TrafficAPIStatus, "trafficMessage": a.TrafficAPIMessage, "trafficScope": trafficScope(a.TrafficAPIStatus), "internetMaxBandwidthOut": a.InternetBandwidth, "publicIpMode": a.PublicIPMode, "eipAllocationId": a.EIPAllocationID, "eipAddress": a.EIPAddress, "eipManaged": a.EIPManaged, "hasInitialCredential": credentialInstances[a.InstanceID], "cloudPresence": a.CloudPresence, "missingSince": a.MissingSince, "operationLocked": a.IsDeleted == 1 || a.CloudPresence == "missing", "scheduleEnabled": a.ScheduleEnabled, "scheduleStartEnabled": a.ScheduleStartEnabled, "scheduleStopEnabled": a.ScheduleStopEnabled, "startTime": a.StartTime, "stopTime": a.StopTime, "stoppedMode": a.StoppedMode, "scheduleBlockedByTraffic": a.ScheduleBlockedByTraffic})
 	}
 	s.json(w, 200, map[string]any{"data": data, "system_last_run": s.Store.LastRun(), "sync_interval": numberString(s.Store.GetSetting("api_interval", ""), 600), "sensitive_visible": true})
 }
@@ -788,6 +810,16 @@ func (s *Server) saveConfig(data map[string]any) error {
 	if raw, ok := data["Accounts"].([]any); ok {
 		if err := validateAccountRegionUniqueness(raw); err != nil {
 			return err
+		}
+	}
+	brandName := "ECS 控制台"
+	if brand, ok := data["AppBrand"].(map[string]any); ok {
+		brandName = strings.TrimSpace(stringValue(brand["name"]))
+		if brandName == "" {
+			brandName = "ECS 控制台"
+		}
+		if len([]rune(brandName)) > 40 {
+			return fmt.Errorf("控制台名称不能超过 40 个字符")
 		}
 	}
 	threshold := number(data["traffic_threshold"], 95)
@@ -834,6 +866,7 @@ func (s *Server) saveConfig(data map[string]any) error {
 		}
 	}
 	if brand, ok := data["AppBrand"].(map[string]any); ok {
+		_ = s.Store.SetSetting("app_name", brandName)
 		_ = s.Store.SetSetting("app_logo_url", stringValue(brand["logo_url"]))
 	}
 	if raw, exists := data["RotationGroups"]; exists {
@@ -1658,6 +1691,10 @@ func (s *Server) control(w http.ResponseWriter, data map[string]any) {
 		s.error(w, 404, "账号不存在")
 		return
 	}
+	if a.CloudPresence == "missing" {
+		s.error(w, 409, "云端实例不存在，正在等待全量对账确认")
+		return
+	}
 	action := stringValue(data["action"])
 	if action != "start" && action != "stop" {
 		s.error(w, 400, "无效的操作类型")
@@ -2038,6 +2075,7 @@ func (s *Server) refreshAccount(w http.ResponseWriter, data map[string]any) {
 		a.PublicIP = a.EIPAddress
 	}
 	now := time.Now()
+	a.LastSeenAt, a.MissingCount, a.MissingSince, a.CloudPresence = now.Unix(), 0, 0, "present"
 	month := now.Format("2006-01")
 	endMS := now.UnixMilli()
 	a.TrafficBillingMonth = month
@@ -2180,7 +2218,7 @@ func (s *Server) fetchInstances(w http.ResponseWriter, data map[string]any) {
 	s.json(w, 200, map[string]any{"success": true, "data": instances})
 }
 
-func (s *Server) testAccount(w http.ResponseWriter, data map[string]any) {
+func (s *Server) testAccount(w http.ResponseWriter, r *http.Request, data map[string]any) {
 	account, _ := data["account"].(map[string]any)
 	if account == nil {
 		s.error(w, 400, "账号数据不能为空")
@@ -2199,46 +2237,22 @@ func (s *Server) testAccount(w http.ResponseWriter, data map[string]any) {
 		s.error(w, 400, "AK、Secret 和区域不能为空")
 		return
 	}
-	client := cloud.NewRPCService(accessKey, secret, region)
-	regions, err := client.DescribeRegions(rctx())
-	if err != nil {
-		s.json(w, 200, map[string]any{"success": false, "message": err.Error()})
+	siteType := fallback(stringValue(account["siteType"]), "china")
+	if siteType != "china" && siteType != "international" {
+		s.error(w, 400, "请选择中国站或国际站")
 		return
 	}
-	regionFound := false
-	for _, item := range regions {
-		if firstMapString([]map[string]any{item}, "RegionId", "regionId") == region {
-			regionFound = true
-			break
-		}
+	var client cloud.Client = cloud.NewRPCService(accessKey, secret, region)
+	if s.CloudFactory != nil {
+		client = s.CloudFactory(app.Account{AccessKeyID: accessKey, AccessKeySecret: secret, RegionID: region, SiteType: siteType})
 	}
-	if !regionFound {
-		s.json(w, 200, map[string]any{"success": false, "message": "当前 AK 无法访问所选区域"})
+	tester, ok := client.(cloud.AccountTester)
+	if !ok {
+		s.error(w, http.StatusServiceUnavailable, "当前云服务不支持权限检查")
 		return
 	}
-	instances, err := client.DescribeInstances(rctx(), region)
-	if err != nil {
-		s.json(w, 200, map[string]any{"success": false, "message": err.Error()})
-		return
-	}
-	monitorStatus, monitorMessage := "skipped", "当前区域暂无实例，未执行云监控流量探测"
-	if len(instances) > 0 {
-		probe := instances[0]
-		end := time.Now().Add(-90 * time.Second).Truncate(time.Minute).UnixMilli()
-		_, _, _, _, metricErr := client.GetOutboundTrafficDelta(rctx(), region, probe.ID, probe.PublicIP, end-10*60*1000, end)
-		if metricErr != nil {
-			monitorMessage = "云监控流量探测未通过: " + metricErr.Error()
-			if cloud.IsMetricNoDataError(metricErr) {
-				monitorMessage = "云端数据尚未更新，请稍后再试"
-			}
-			monitorStatus = "warning"
-		} else {
-			monitorStatus, monitorMessage = "ok", "云监控接口已接通，可获取实例流量"
-		}
-	}
-	maxTraffic := number(account["maxTraffic"], 0)
-	usageUsed := numberFloat(account["usageUsed"])
-	s.json(w, 200, map[string]any{"success": true, "message": "AK 可用，ECS API 已接通", "monitorStatus": monitorStatus, "monitorMessage": monitorMessage, "instanceCount": len(instances), "usageUsed": usageUsed, "usageRemaining": maxFloat(float64(maxTraffic)-usageUsed, 0), "usagePercent": mapPercent(usageUsed, float64(maxTraffic))})
+	w.Header().Set("Cache-Control", "no-store")
+	s.json(w, http.StatusOK, tester.TestAccount(r.Context(), region, siteType))
 }
 
 func (s *Server) resolveMaskedAccountSecret(account map[string]any, accessKey, region string) (string, error) {
@@ -2394,7 +2408,7 @@ func (s *Server) csrfOK(w http.ResponseWriter, r *http.Request) bool {
 }
 func (s *Server) mutating(a string) bool {
 	switch a {
-	case "save_config", "upload_logo", "clear_logs", "logout", "create_ecs", "control_instance", "save_instance_schedule", "delete_instance", "replace_instance_ip", "get_instance_initial_credential", "refresh_account", "sync_account_group", "sync_instances", "restore_schedule_block", "send_test_email", "send_test_telegram", "send_test_webhook", "start_update", "passkey_register_start", "passkey_register_finish", "retry_runtime_job":
+	case "save_config", "upload_logo", "clear_logs", "logout", "create_ecs", "control_instance", "save_instance_schedule", "delete_instance", "replace_instance_ip", "get_instance_initial_credential", "refresh_account", "sync_account_group", "sync_instances", "restore_schedule_block", "send_test_email", "send_test_telegram", "send_test_webhook", "start_update", "passkey_register_start", "passkey_register_finish", "retry_runtime_job", "create_backup", "restore_backup", "sync_rotation_dns":
 		return true
 	}
 	return false

@@ -46,6 +46,8 @@ func webAuditMetadata(action string, data map[string]any) (webAuditMeta, bool) {
 		accountID = ""
 	}
 	switch action {
+	case "sync_rotation_dns":
+		return webAuditMeta{Action: "ddns_update", EntityType: "rotation_group", EntityID: stringValue(data["groupId"]), Summary: "手动同步分组域名解析"}, true
 	case "save_config":
 		return webAuditMeta{Action: "config_update", EntityType: "configuration", EntityID: "global", Summary: "保存系统、账号或分组配置"}, true
 	case "create_ecs":

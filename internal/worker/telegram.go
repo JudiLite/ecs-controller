@@ -124,6 +124,8 @@ func (w *Worker) telegramClient() (*notify.TelegramClient, error) {
 }
 
 func (w *Worker) handleTelegramUpdate(ctx context.Context, client *notify.TelegramClient, update map[string]any) error {
+	w.Store.Operations.RLock()
+	defer w.Store.Operations.RUnlock()
 	if callback, ok := update["callback_query"].(map[string]any); ok {
 		return w.handleTelegramCallback(ctx, client, callback)
 	}
@@ -349,7 +351,7 @@ func (w *Worker) telegramHome() string {
 		fmt.Sprintf("🟢 运行 %d    ⏸️ 停止 %d    🔄 处理中 %d", running, stopped, starting),
 	}
 	if other > 0 {
-		lines = append(lines, fmt.Sprintf("⚪ 未知状态 %d", other))
+		lines = append(lines, fmt.Sprintf("⚪ 待确认/未知 %d", other))
 	}
 	lines = append(lines, "", "选择要进入的区域：")
 	return strings.Join(lines, "\n")
@@ -406,7 +408,7 @@ func (w *Worker) telegramCDTTraffic(ctx context.Context, groups []app.AccountGro
 		key := group.GroupKey
 		var account *app.Account
 		for i := range accounts {
-			if accounts[i].GroupKey == key || (accounts[i].AccessKeyID == group.AccessKeyID && accounts[i].RegionID == group.RegionID) {
+			if accounts[i].CloudPresence != "missing" && (accounts[i].GroupKey == key || (accounts[i].AccessKeyID == group.AccessKeyID && accounts[i].RegionID == group.RegionID)) {
 				account = &accounts[i]
 				break
 			}
@@ -437,6 +439,9 @@ func (w *Worker) telegramInstanceTraffic(accounts []app.Account, now time.Time) 
 	available := map[string]bool{}
 	month := now.Format("2006-01")
 	for _, account := range accounts {
+		if account.CloudPresence == "missing" {
+			continue
+		}
 		key := account.GroupKey
 		if key == "" {
 			key = account.AccessKeyID + "|" + account.RegionID
@@ -688,12 +693,21 @@ func (w *Worker) refreshTelegramAccount(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("实例不存在")
 	}
+	if a.CloudPresence == "missing" {
+		return fmt.Errorf("云端实例不存在，正在等待全量对账确认")
+	}
 	client := w.clientForAccount(*a)
 	if client == nil {
 		return fmt.Errorf("云客户端未配置")
 	}
 	instance, err := client.DescribeInstance(ctx, a.RegionID, a.InstanceID)
 	if err != nil {
+		if cloud.IsNotFound(err) {
+			if purgeErr := w.purgeMissingAccount(ctx, *a); purgeErr != nil {
+				return purgeErr
+			}
+			return fmt.Errorf("云端实例不存在，已从面板移除")
+		}
 		return err
 	}
 	a.InstanceStatus, a.PublicIP, a.PrivateIP, a.InstanceType, a.UpdatedAt, a.HealthStatus = instance.Status, instance.PublicIP, instance.PrivateIP, instance.InstanceType, time.Now().Unix(), "ok"
@@ -701,6 +715,7 @@ func (w *Worker) refreshTelegramAccount(ctx context.Context, id int64) error {
 		a.PublicIP = a.EIPAddress
 	}
 	now := time.Now()
+	a.LastSeenAt, a.MissingCount, a.MissingSince, a.CloudPresence = now.Unix(), 0, 0, "present"
 	traffic, trafficStatus, trafficMessage, trafficErr := w.refreshTraffic(ctx, client, *a, now)
 	if trafficErr == nil {
 		a.TrafficUsed = traffic
@@ -732,7 +747,7 @@ func (w *Worker) refreshAllTelegramData(ctx context.Context) error {
 	}
 	var failures []string
 	for _, account := range accounts {
-		if account.InstanceID == "" {
+		if account.InstanceID == "" || account.CloudPresence == "missing" {
 			continue
 		}
 		if err := w.refreshTelegramAccount(ctx, account.ID); err != nil {
@@ -753,6 +768,9 @@ func groupTrafficUsed(accounts []app.Account) map[string]float64 {
 	}
 	metrics := map[string]*metric{}
 	for _, account := range accounts {
+		if account.CloudPresence == "missing" {
+			continue
+		}
 		key := account.GroupKey
 		if key == "" {
 			key = account.AccessKeyID + "|" + account.RegionID
@@ -785,6 +803,9 @@ func (w *Worker) controlTelegramAccount(ctx context.Context, id int64, action st
 	a, err := w.Store.Account(id, false)
 	if err != nil {
 		return fmt.Errorf("实例不存在")
+	}
+	if a.CloudPresence == "missing" {
+		return fmt.Errorf("云端实例不存在，正在等待全量对账确认")
 	}
 	client := w.clientForAccount(*a)
 	if client == nil {
@@ -819,6 +840,9 @@ func (w *Worker) enqueueTelegramDelete(id int64) error {
 	a, err := w.Store.Account(id, false)
 	if err != nil {
 		return fmt.Errorf("实例不存在")
+	}
+	if a.CloudPresence == "missing" {
+		return fmt.Errorf("云端实例不存在，系统将自动归档本地记录")
 	}
 	if a.InstanceStatus == "Releasing" {
 		return nil
@@ -928,7 +952,7 @@ func splitIDs(value string) []string {
 	return strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == '，' || r == '；' || r == ' ' || r == '\t' })
 }
 func statusLabel(status string) string {
-	if label, ok := map[string]string{"Running": "运行中", "Starting": "启动中", "Stopping": "停机中", "Stopped": "已停止", "Releasing": "释放中", "Released": "已释放"}[status]; ok {
+	if label, ok := map[string]string{"Running": "运行中", "Starting": "启动中", "Stopping": "停机中", "Stopped": "已停止", "Releasing": "释放中", "Released": "已释放", "Missing": "云端已不存在，待确认"}[status]; ok {
 		return label
 	}
 	return "未知"
@@ -943,6 +967,8 @@ func statusIcon(status string) string {
 		return "⏸️"
 	case "Released":
 		return "⚫"
+	case "Missing":
+		return "☁️"
 	default:
 		return "⚪"
 	}
@@ -1064,7 +1090,10 @@ func (w *Worker) instanceKeyboard(id int64, page ...int) map[string]any {
 		currentPage = maxInt(1, page[0])
 	}
 	keyboard := [][]map[string]string{}
-	if a.InstanceStatus == "Stopped" {
+	if a.CloudPresence == "missing" {
+		// Missing instances are read-only until inventory reconciliation either
+		// restores them or archives their local records.
+	} else if a.InstanceStatus == "Stopped" {
 		keyboard = append(keyboard, []map[string]string{{"text": "🚀 开机", "callback_data": fmt.Sprintf("m:start:%d:%d", id, currentPage)}, {"text": "🔄 刷新", "callback_data": fmt.Sprintf("m:refresh:%d:%d", id, currentPage)}})
 	} else if a.InstanceStatus == "Running" {
 		keyboard = append(keyboard, []map[string]string{{"text": "🛑 停机", "callback_data": fmt.Sprintf("m:stop:%d:%d", id, currentPage)}, {"text": "🔄 刷新", "callback_data": fmt.Sprintf("m:refresh:%d:%d", id, currentPage)}})
