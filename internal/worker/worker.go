@@ -58,6 +58,8 @@ func (w *Worker) Monitor(ctx context.Context, interval time.Duration) {
 }
 
 func (w *Worker) runMonitorCycle(ctx context.Context, interval time.Duration) {
+	w.Store.Operations.RLock()
+	defer w.Store.Operations.RUnlock()
 	w.Store.SetLastRun()
 	now := time.Now()
 	started := w.beginRuntime(runtimeInstanceMonitor, "正在检查实例状态与流量", now.Add(interval))
@@ -602,84 +604,90 @@ func (w *Worker) Run(ctx context.Context) {
 			return
 		default:
 		}
-		job, err := w.Store.ClaimJob(2 * time.Minute)
-		if err != nil {
-			w.Log.Printf("claim job: %v", err)
-			started := w.beginRuntime(runtimeJobQueue, "正在读取后台任务", time.Time{})
-			w.finishRuntime(runtimeJobQueue, started, "后台任务读取失败", time.Time{}, err)
-			sleep(ctx, 2*time.Second)
-			continue
-		}
-		if job == nil {
-			sleep(ctx, time.Second)
-			continue
-		}
-		started := w.beginRuntime(runtimeJobQueue, "正在执行 "+job.Kind, time.Time{})
-		if err := w.execute(ctx, job); err != nil {
-			w.Log.Printf("job %s: %v", job.JobID, err)
-			if job.Kind == "delete_instance" && cloud.IsNotFound(err) {
-				if finalizeErr := w.finalizeMissingInstance(ctx, job); finalizeErr == nil {
-					_ = w.Store.FinishJob(job.JobID)
-					w.Store.AddLog("info", "云端实例已不存在，已清理本地释放残留: "+job.EntityKey)
-					w.audit(app.AuditSourceJob, "instance_release", "instance", job.EntityKey, "云端实例已不存在，本地释放任务已完成", nil)
-					w.finishRuntime(runtimeJobQueue, started, "云端实例已不存在，已清理本地残留", time.Time{}, nil)
-					w.setRuntimeWaiting(runtimeJobQueue, "后台任务队列空闲", time.Time{})
-					continue
-				}
-			}
-			maxAttempts := 5
-			if job.Kind == "create_ecs" {
-				message := strings.ToLower(err.Error())
-				for _, code := range []string{"quotaexceeded.vpc", "idempotentparametermismatch", "invalidaccountstatus.notenoughbalance", "invalidcidrblock.overlapped", "invalidparameter.instancetypenotsupport", "insufficientstock", "not_enough_stock"} {
-					if strings.Contains(message, code) {
-						maxAttempts = 1
-						break
-					}
-				}
-			}
-			if job.Kind == "delete_instance" {
-				maxAttempts = 20
-			}
-			if job.Kind == "cleanup_eip" {
-				maxAttempts = 20
-			}
-			if job.Attempts < maxAttempts {
-				_ = w.Store.RetryJob(job.JobID, retryDelay(job.Attempts), err.Error())
-				w.finishRuntime(runtimeJobQueue, started, "任务执行失败，已进入重试", time.Time{}, err)
-			} else {
-				if job.Kind == "delete_instance" {
-					if id, parseErr := strconv.ParseInt(job.EntityKey, 10, 64); parseErr == nil {
-						_ = w.Store.MarkReleaseFailed(id)
-					}
-				}
-				_ = w.Store.FailJob(job.JobID, err.Error())
-				w.Store.AddLog("error", fmt.Sprintf("后台任务最终失败 [%s/%s]（已重试 %d 次）：%s", job.Kind, job.EntityKey, job.Attempts, err.Error()))
-				w.finishRuntime(runtimeJobQueue, started, "任务已达到最大重试次数", time.Time{}, err)
-				action, entityType, summary := "job_execute", "job", "后台任务执行失败"
-				if job.Kind == "create_ecs" {
-					action, entityType, summary = "ecs_create", "ecs_task", "ECS 创建任务失败"
-				} else if job.Kind == "delete_instance" {
-					action, entityType, summary = "instance_release", "instance", "实例释放任务失败"
-				} else if job.Kind == "cleanup_eip" {
-					action, entityType, summary = "eip_cleanup", "eip", "旧 EIP 清理任务失败"
-				}
-				w.audit(app.AuditSourceJob, action, entityType, job.EntityKey, summary, err)
-			}
-			continue
-		}
-		_ = w.Store.FinishJob(job.JobID)
-		action, entityType, summary := "job_execute", "job", "后台任务执行完成"
-		if job.Kind == "create_ecs" {
-			action, entityType, summary = "ecs_create", "ecs_task", "ECS 创建任务完成"
-		} else if job.Kind == "delete_instance" {
-			action, entityType, summary = "instance_release", "instance", "实例释放任务完成"
-		} else if job.Kind == "cleanup_eip" {
-			action, entityType, summary = "eip_cleanup", "eip", "旧 EIP 清理任务完成"
-		}
-		w.audit(app.AuditSourceJob, action, entityType, job.EntityKey, summary, nil)
-		w.finishRuntime(runtimeJobQueue, started, "已完成 "+job.Kind, time.Time{}, nil)
-		w.setRuntimeWaiting(runtimeJobQueue, "后台任务队列空闲", time.Time{})
+		w.runJobCycle(ctx)
 	}
+}
+
+func (w *Worker) runJobCycle(ctx context.Context) {
+	w.Store.Operations.RLock()
+	defer w.Store.Operations.RUnlock()
+	job, err := w.Store.ClaimJob(2 * time.Minute)
+	if err != nil {
+		w.Log.Printf("claim job: %v", err)
+		started := w.beginRuntime(runtimeJobQueue, "正在读取后台任务", time.Time{})
+		w.finishRuntime(runtimeJobQueue, started, "后台任务读取失败", time.Time{}, err)
+		sleep(ctx, 2*time.Second)
+		return
+	}
+	if job == nil {
+		sleep(ctx, time.Second)
+		return
+	}
+	started := w.beginRuntime(runtimeJobQueue, "正在执行 "+job.Kind, time.Time{})
+	if err := w.execute(ctx, job); err != nil {
+		w.Log.Printf("job %s: %v", job.JobID, err)
+		if job.Kind == "delete_instance" && cloud.IsNotFound(err) {
+			if finalizeErr := w.finalizeMissingInstance(ctx, job); finalizeErr == nil {
+				_ = w.Store.FinishJob(job.JobID)
+				w.Store.AddLog("info", "云端实例已不存在，已清理本地释放残留: "+job.EntityKey)
+				w.audit(app.AuditSourceJob, "instance_release", "instance", job.EntityKey, "云端实例已不存在，本地释放任务已完成", nil)
+				w.finishRuntime(runtimeJobQueue, started, "云端实例已不存在，已清理本地残留", time.Time{}, nil)
+				w.setRuntimeWaiting(runtimeJobQueue, "后台任务队列空闲", time.Time{})
+				return
+			}
+		}
+		maxAttempts := 5
+		if job.Kind == "create_ecs" {
+			message := strings.ToLower(err.Error())
+			for _, code := range []string{"quotaexceeded.vpc", "idempotentparametermismatch", "invalidaccountstatus.notenoughbalance", "invalidcidrblock.overlapped", "invalidparameter.instancetypenotsupport", "insufficientstock", "not_enough_stock"} {
+				if strings.Contains(message, code) {
+					maxAttempts = 1
+					break
+				}
+			}
+		}
+		if job.Kind == "delete_instance" {
+			maxAttempts = 20
+		}
+		if job.Kind == "cleanup_eip" {
+			maxAttempts = 20
+		}
+		if job.Attempts < maxAttempts {
+			_ = w.Store.RetryJob(job.JobID, retryDelay(job.Attempts), err.Error())
+			w.finishRuntime(runtimeJobQueue, started, "任务执行失败，已进入重试", time.Time{}, err)
+		} else {
+			if job.Kind == "delete_instance" {
+				if id, parseErr := strconv.ParseInt(job.EntityKey, 10, 64); parseErr == nil {
+					_ = w.Store.MarkReleaseFailed(id)
+				}
+			}
+			_ = w.Store.FailJob(job.JobID, err.Error())
+			w.Store.AddLog("error", fmt.Sprintf("后台任务最终失败 [%s/%s]（已重试 %d 次）：%s", job.Kind, job.EntityKey, job.Attempts, err.Error()))
+			w.finishRuntime(runtimeJobQueue, started, "任务已达到最大重试次数", time.Time{}, err)
+			action, entityType, summary := "job_execute", "job", "后台任务执行失败"
+			if job.Kind == "create_ecs" {
+				action, entityType, summary = "ecs_create", "ecs_task", "ECS 创建任务失败"
+			} else if job.Kind == "delete_instance" {
+				action, entityType, summary = "instance_release", "instance", "实例释放任务失败"
+			} else if job.Kind == "cleanup_eip" {
+				action, entityType, summary = "eip_cleanup", "eip", "旧 EIP 清理任务失败"
+			}
+			w.audit(app.AuditSourceJob, action, entityType, job.EntityKey, summary, err)
+		}
+		return
+	}
+	_ = w.Store.FinishJob(job.JobID)
+	action, entityType, summary := "job_execute", "job", "后台任务执行完成"
+	if job.Kind == "create_ecs" {
+		action, entityType, summary = "ecs_create", "ecs_task", "ECS 创建任务完成"
+	} else if job.Kind == "delete_instance" {
+		action, entityType, summary = "instance_release", "instance", "实例释放任务完成"
+	} else if job.Kind == "cleanup_eip" {
+		action, entityType, summary = "eip_cleanup", "eip", "旧 EIP 清理任务完成"
+	}
+	w.audit(app.AuditSourceJob, action, entityType, job.EntityKey, summary, nil)
+	w.finishRuntime(runtimeJobQueue, started, "已完成 "+job.Kind, time.Time{}, nil)
+	w.setRuntimeWaiting(runtimeJobQueue, "后台任务队列空闲", time.Time{})
 }
 
 func (w *Worker) finalizeMissingInstance(ctx context.Context, job *store.Job) error {

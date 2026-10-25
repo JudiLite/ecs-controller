@@ -124,6 +124,8 @@ func (w *Worker) telegramClient() (*notify.TelegramClient, error) {
 }
 
 func (w *Worker) handleTelegramUpdate(ctx context.Context, client *notify.TelegramClient, update map[string]any) error {
+	w.Store.Operations.RLock()
+	defer w.Store.Operations.RUnlock()
 	if callback, ok := update["callback_query"].(map[string]any); ok {
 		return w.handleTelegramCallback(ctx, client, callback)
 	}

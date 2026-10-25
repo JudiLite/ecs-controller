@@ -158,6 +158,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	case "brand_logo":
 		s.brandLogo(w)
 	default:
+		if action != "restore_backup" {
+			s.Store.Operations.RLock()
+			defer s.Store.Operations.RUnlock()
+		}
 		if !s.authenticated(r) {
 			s.error(w, http.StatusForbidden, "请先登录后再操作")
 			return
@@ -285,6 +289,10 @@ func (s *Server) brandLogo(w http.ResponseWriter) {
 }
 
 func (s *Server) authenticatedAction(w http.ResponseWriter, r *http.Request, action string) {
+	if action == "inspect_backup" || action == "restore_backup" || action == "export_backup" || action == "download_restore_backup" {
+		s.backupAction(w, r, action)
+		return
+	}
 	// Multipart uploads must be parsed before anything reads r.Body. JSON
 	// decoding a multipart request would consume the file stream.
 	if action == "upload_logo" {
@@ -2393,6 +2401,9 @@ func (s *Server) csrfOK(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 func (s *Server) mutating(a string) bool {
+	if a == "export_backup" || a == "inspect_backup" || a == "restore_backup" || a == "download_restore_backup" {
+		return true
+	}
 	switch a {
 	case "save_config", "upload_logo", "clear_logs", "logout", "create_ecs", "control_instance", "save_instance_schedule", "delete_instance", "replace_instance_ip", "get_instance_initial_credential", "refresh_account", "sync_account_group", "sync_instances", "restore_schedule_block", "send_test_email", "send_test_telegram", "send_test_webhook", "start_update", "passkey_register_start", "passkey_register_finish", "retry_runtime_job":
 		return true

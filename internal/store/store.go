@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/JudiLite/ecs-controller/internal/app"
@@ -23,8 +24,10 @@ import (
 )
 
 type Store struct {
-	DB  *sql.DB
-	Key [32]byte
+	Operations sync.RWMutex
+	dataDir    string
+	DB         *sql.DB
+	Key        [32]byte
 }
 
 type Job struct {
@@ -64,7 +67,7 @@ func Open(dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{DB: db}
+	s := &Store{DB: db, dataDir: dataDir}
 	if err := s.loadKey(filepath.Join(dataDir, ".secret_encryption.key")); err != nil {
 		db.Close()
 		return nil, err
