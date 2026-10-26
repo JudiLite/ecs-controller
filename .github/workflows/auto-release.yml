@@ -94,6 +94,7 @@ jobs:
             fi
           fi
           echo "tag=$next_tag" >> "$GITHUB_OUTPUT"
+          echo "name=${next_tag#v}" >> "$GITHUB_OUTPUT"
           echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
 
       - name: Build release binaries
@@ -155,40 +156,13 @@ jobs:
           rm -f "$signing_key"
           ls -lh "$release_dir"
 
-      - name: Generate release notes
-        id: notes
-        shell: bash
-        env:
-          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          if [[ -n "$PREVIOUS_TAG" ]]; then
-            commit_range="$PREVIOUS_TAG..HEAD"
-            compare_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$PREVIOUS_TAG...$RELEASE_TAG"
-          else
-            commit_range="HEAD"
-            compare_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commits/$RELEASE_TAG"
-          fi
-          delimiter="RELEASE_NOTES_$(date +%s%N)"
-          {
-            echo "body<<$delimiter"
-            git log "$commit_range" --format='- **%s** ([%h]('"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"'/commit/%H))%n%b%n'
-            echo
-            echo "---"
-            echo "[查看完整改动]($compare_url)"
-            echo "$delimiter"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Publish GitHub Release
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ steps.version.outputs.tag }}
           commit: ${{ github.sha }}
-          name: Release ${{ steps.version.outputs.tag }}
-          body: |
-            ## 更新内容
-
-            ${{ steps.notes.outputs.body }}
+          name: ${{ steps.version.outputs.name }}
+          body: 更新与优化。
           artifacts: ${{ runner.temp }}/ecs-controller-release/*
           artifactErrorsFailBuild: true
           allowUpdates: false

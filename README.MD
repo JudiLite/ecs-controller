@@ -19,19 +19,6 @@
 
 原有实例创建、镜像选择、价格预估、公网 IP / EIP 更换、共享带宽、流量保护、每日统计、Telegram 双向操作、后台任务、签名更新与部署脚本继续保留。
 
-### 从主分支源码运行
-
-准备 Go 1.26 或更高版本，在仓库根目录构建并运行；根目录中的 `template.html` 和 `static/` 需要随程序保留：
-
-```bash
-git clone https://github.com/JudiLite/ecs-controller.git
-cd ecs-controller
-go build -o ecs-controller ./cmd/ecs-controller
-ECS_DATA_DIR=./data ECS_HTTP_ADDR=127.0.0.1:43211 ./ecs-controller
-```
-
-普通安装与网页在线更新使用最新稳定发行版。源码运行适合开发调试；安装包已包含上面的适配与优化。
-
 ## 部署
 
 准备一台 Linux 服务器。使用域名和 HTTPS 时，请先把域名解析到服务器 IP，并确保 80/443 端口可以访问。当前支持 AMD64 和 ARM64。
@@ -43,7 +30,7 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/setup.
   | sudo bash
 ```
 
-脚本会进入部署菜单，可选择 Docker Compose 或原生 systemd/OpenRC 安装，配置域名、HTTPS、端口和容器名称，并提供状态、重启、日志和卸载操作。Docker 模式会自动生成 Compose 配置；填写域名并启用 HTTPS 后，会使用 Caddy 自动申请和续期证书。
+脚本会进入部署菜单，直接回车选择第 1 项“安装 / 重新部署”；首次安装的安装方式也默认选择第 1 项 Docker Compose。没有域名时只需填写应用端口，其余保留默认即可。设置域名并启用 HTTPS 后，Docker 模式会使用 Caddy 自动申请和续期证书。也可选择原生 systemd/OpenRC 安装。
 
 安装脚本只负责部署环境，不会询问应用账号、阿里云 AccessKey 或其他业务配置。服务启动后，用浏览器打开安装完成时显示的地址，在首次登录页面完成应用配置。
 
@@ -69,7 +56,9 @@ sudo ecs logs
 sudo /opt/ecs-controller/setup.sh
 ```
 
-部署向导会把本次选择保存到 `/opt/ecs-controller/.setup_state`，重新运行时会自动使用上次的配置作为默认值。Docker 部署文件、数据和访问信息位于 `/opt/ecs-controller/`。
+开始安装前会显示配置摘要，直接回车确认，输入 `2` 可重新修改，输入 `0` 取消。输入选项、端口或域名有误时会提示重新输入。
+
+部署向导会把本次选择保存到 `/opt/ecs-controller/.setup_state`；已有配置时，选择安装会先显示原配置，回车即可沿用，无需重复填写。安装完成后直接结束向导，之后运行 `sudo ecs` 可进入服务菜单，回车默认选择第 1 项“启动服务”。Docker 部署文件、数据和访问信息位于 `/opt/ecs-controller/`。
 
 如需直接使用底层原生安装器：
 
@@ -120,7 +109,7 @@ sudo ecs logs
 
 底层 systemd/OpenRC 命令仍然可用。原生安装修改 `/etc/ecs-controller/ecs-controller.env` 后，需要重启 `ecs-controller` 服务才能生效。Docker 部署会额外运行更新容器，网页在线更新时自动下载、校验 Release、重建应用容器并进行健康检查，失败会自动回滚。
 
-服务默认只监听服务器本机的 `43211` 端口，请通过你现有的 HTTPS 访问方式打开面板，不要直接开放这个端口。
+原生安装默认仅监听服务器本机的应用端口，需要通过已有的反向代理访问。Docker 安装不使用域名时，会开放向导中设置的应用端口；使用域名时由 Caddy 提供访问入口。
 
 公网使用 Passkey 时必须使用 HTTPS。
 

@@ -89,22 +89,81 @@ persist_self() {
     rm -f /usr/local/bin/aliyun
 }
 
-ask() {
-    local prompt="$1" default="$2" answer
-    if [[ -n "$default" ]]; then
-        read -r -p "$prompt [$default]: " answer </dev/tty || answer=""
-        printf '%s' "${answer:-$default}"
-    else
-        read -r -p "$prompt: " answer </dev/tty || answer=""
-        printf '%s' "$answer"
+init_terminal() {
+    if ! { exec 3<>/dev/tty; } 2>/dev/null; then
+        die "未检测到交互终端，请通过 SSH 终端运行安装命令。"
     fi
 }
 
-yes_no() {
+ask() {
     local prompt="$1" default="$2" answer
-    read -r -p "$prompt [$default]: " answer </dev/tty || answer=""
-    answer="${answer:-$default}"
-    [[ "${answer,,}" == "y" || "${answer,,}" == "yes" ]]
+    if [[ -n "$default" ]]; then
+        printf '%s [默认 %s，回车使用]: ' "$prompt" "$default" >&2
+    else
+        printf '%s: ' "$prompt" >&2
+    fi
+    if ! IFS= read -r -u 3 answer; then
+        printf '\n输入已结束，已取消操作。\n' >&2
+        return 130
+    fi
+    answer="${answer#"${answer%%[![:space:]]*}"}"
+    answer="${answer%"${answer##*[![:space:]]}"}"
+    printf '%s' "${answer:-$default}"
+}
+
+ask_choice() {
+    local prompt="$1" default="$2" answer option
+    shift 2
+    while true; do
+        answer=$(ask "$prompt" "$default") || exit 130
+        for option in "$@"; do
+            if [[ "$answer" == "$option" ]]; then
+                printf '%s' "$answer"
+                return 0
+            fi
+        done
+        printf '无效选项，请输入 %s。\n' "$*" >&2
+    done
+}
+
+yes_no() {
+    local prompt="$1" default="$2" answer hint
+    if [[ "$default" == "y" ]]; then hint="Y/n"; else hint="y/N"; fi
+    while true; do
+        answer=$(ask "$prompt（$hint）" "$default") || exit 130
+        case "${answer,,}" in
+            y|yes|1) return 0 ;;
+            n|no|2) return 1 ;;
+            *) printf '请输入 y 或 n，也可直接回车使用默认值。\n' >&2 ;;
+        esac
+    done
+}
+
+ask_port() {
+    local prompt="$1" default="$2" answer
+    while true; do
+        answer=$(ask "$prompt" "$default") || exit 130
+        if [[ "$answer" =~ ^[0-9]{1,5}$ ]] && (( 10#$answer >= 1 && 10#$answer <= 65535 )); then
+            printf '%s' "$((10#$answer))"
+            return 0
+        fi
+        printf '端口请输入 1–65535 之间的数字。\n' >&2
+    done
+}
+
+ask_domain() {
+    local answer
+    while true; do
+        answer=$(ask "域名（需已解析到本机，可粘贴网址）" "$DOMAIN") || exit 130
+        answer="${answer#https://}"
+        answer="${answer#http://}"
+        answer="${answer%%/*}"
+        if [[ ${#answer} -le 253 && "$answer" == *.* && "$answer" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ && "$answer" != *..* && "$answer" != *.-* && "$answer" != *-.* ]]; then
+            printf '%s' "${answer,,}"
+            return 0
+        fi
+        printf '请输入有效域名，例如 ecs.example.com。\n' >&2
+    done
 }
 
 load_state() {
@@ -137,62 +196,105 @@ EOF
     chmod 0600 "$STATE_FILE"
 }
 
-check_port() {
-    [[ "$1" =~ ^[0-9]+$ ]] || die "端口必须是数字：$1"
-    (( "$1" >= 1 && "$1" <= 65535 )) || die "端口范围必须是 1-65535：$1"
-}
-
 collect_config() {
-    echo ""
-    echo -e "${CYAN}${BOLD}部署配置${RESET}"
-    echo "应用账号、密码、阿里云凭据等内容将在首次登录网页后配置。"
-    echo ""
-
-    INSTALL_MODE="docker"
-    echo "安装方式："
-    echo "  1) Docker Compose（推荐）"
-    echo "  2) 原生 systemd/OpenRC"
     local mode
-    mode=$(ask "请选择" "1")
-    [[ "$mode" == "2" ]] && INSTALL_MODE="native"
+    echo ""
+    echo -e "${CYAN}${BOLD}第 1 步：选择安装方式${RESET}"
+    echo "  1) Docker Compose（推荐，回车默认）"
+    echo "  2) 原生 systemd/OpenRC"
+    mode=$(ask_choice "请选择安装方式" "1" 1 2)
+    if [[ "$mode" == "2" ]]; then INSTALL_MODE="native"; else INSTALL_MODE="docker"; fi
 
     if [[ "$INSTALL_MODE" == "docker" ]]; then
-        CONTAINER_NAME=$(ask "容器名称" "$CONTAINER_NAME")
-        [[ "$CONTAINER_NAME" =~ ^[a-z0-9][a-z0-9_.-]*$ ]] ||
-            die "容器名称只能包含小写字母、数字、点、下划线和短横线。"
+        while true; do
+            CONTAINER_NAME=$(ask "容器名称" "$CONTAINER_NAME")
+            if [[ "$CONTAINER_NAME" =~ ^[a-z0-9][a-z0-9_.-]*$ ]]; then break; fi
+            echo "容器名称只能包含小写字母、数字、点、下划线和短横线。" >&2
+        done
     fi
 
-    if yes_no "是否设置域名？(y/n)" "$USE_DOMAIN"; then
+    echo ""
+    echo -e "${CYAN}${BOLD}第 2 步：设置访问方式${RESET}"
+    if yes_no "是否使用域名" "$USE_DOMAIN"; then
         USE_DOMAIN="y"
-        DOMAIN=$(ask "域名（不含 http:// 或 https://）" "$DOMAIN")
-        DOMAIN="${DOMAIN#https://}"
-        DOMAIN="${DOMAIN#http://}"
-        DOMAIN="${DOMAIN%%/*}"
-        [[ -n "$DOMAIN" ]] || die "启用域名后不能留空。"
+        DOMAIN=$(ask_domain)
+        if [[ "$INSTALL_MODE" == "native" ]]; then
+            echo "原生安装不配置反向代理，请将域名转发到本机 127.0.0.1 的应用端口。"
+            if yes_no "已有 HTTPS 反向代理" "$ENABLE_HTTPS"; then ENABLE_HTTPS="y"; else ENABLE_HTTPS="n"; fi
+        else
+            if yes_no "是否自动申请 HTTPS 证书" "$ENABLE_HTTPS"; then ENABLE_HTTPS="y"; else ENABLE_HTTPS="n"; fi
+        fi
+        HTTP_PORT=$(ask_port "HTTP 对外端口" "$HTTP_PORT")
+        if [[ "$ENABLE_HTTPS" == "y" ]]; then
+            while true; do
+                HTTPS_PORT=$(ask_port "HTTPS 对外端口" "$HTTPS_PORT")
+                if [[ "$HTTPS_PORT" != "$HTTP_PORT" ]]; then break; fi
+                echo "HTTP 和 HTTPS 端口不能相同，请重新输入。" >&2
+            done
+        fi
     else
         USE_DOMAIN="n"
         DOMAIN=""
-    fi
-
-    if yes_no "是否启用 HTTPS？(y/n)" "$ENABLE_HTTPS"; then
-        ENABLE_HTTPS="y"
-        [[ "$USE_DOMAIN" == "y" ]] || die "自动 HTTPS 需要域名，请先设置域名。"
-        HTTPS_PORT=$(ask "HTTPS 对外端口" "$HTTPS_PORT")
-        check_port "$HTTPS_PORT"
-        HTTP_PORT=$(ask "HTTP 对外端口（用于证书申请和跳转）" "$HTTP_PORT")
-        check_port "$HTTP_PORT"
-    else
         ENABLE_HTTPS="n"
-        HTTP_PORT=$(ask "HTTP 对外端口" "$HTTP_PORT")
-        check_port "$HTTP_PORT"
     fi
 
-    if [[ "$INSTALL_MODE" == "docker" && "$USE_DOMAIN" == "n" ]]; then
-        APP_PORT=$(ask "应用对外端口" "$APP_PORT")
-        check_port "$APP_PORT"
+    if [[ "$INSTALL_MODE" == "native" ]]; then
+        APP_PORT=$(ask_port "应用监听端口（仅本机，供反向代理使用）" "$APP_PORT")
+    elif [[ "$USE_DOMAIN" == "n" ]]; then
+        APP_PORT=$(ask_port "应用访问端口" "$APP_PORT")
     fi
+}
 
-    save_state
+show_config_summary() {
+    echo ""
+    echo -e "${CYAN}${BOLD}安装配置确认${RESET}"
+    if [[ "$INSTALL_MODE" == "docker" ]]; then
+        printf '安装方式：Docker Compose\n容器名称：%s\n' "$CONTAINER_NAME"
+    else
+        printf '安装方式：原生 systemd/OpenRC\n本机监听：127.0.0.1:%s\n' "$APP_PORT"
+    fi
+    if [[ "$USE_DOMAIN" == "y" ]]; then
+        if [[ "$ENABLE_HTTPS" == "y" ]]; then
+            printf '访问地址：https://%s:%s\n' "$DOMAIN" "$HTTPS_PORT"
+        else
+            printf '访问地址：http://%s:%s\n' "$DOMAIN" "$HTTP_PORT"
+        fi
+    elif [[ "$INSTALL_MODE" == "docker" ]]; then
+        printf '访问地址：http://服务器IP:%s\n' "$APP_PORT"
+    else
+        printf '访问地址：http://127.0.0.1:%s（请配置反向代理后访问）\n' "$APP_PORT"
+    fi
+    printf '部署目录：%s\n' "$DEPLOY_DIR"
+    echo "应用账号、密码和阿里云凭据将在首次打开网页时设置。"
+}
+
+prepare_installation() {
+    local choice
+    if [[ -f "$STATE_FILE" ]]; then
+        echo "检测到已保存的安装配置，直接确认即可沿用。"
+    else
+        collect_config
+    fi
+    while true; do
+        show_config_summary
+        echo "  1) 确认并开始安装（回车默认）"
+        echo "  2) 修改配置"
+        echo "  0) 取消并退出"
+        choice=$(ask_choice "请选择" "1" 1 2 0)
+        case "$choice" in
+            1)
+                save_state
+                if [[ "$INSTALL_MODE" == "docker" ]]; then
+                    install_docker
+                else
+                    ECS_RECONFIGURE=1 install_native
+                fi
+                return
+                ;;
+            2) collect_config ;;
+            0) return ;;
+        esac
+    done
 }
 
 ensure_docker() {
@@ -302,7 +404,11 @@ EOF
     restart: unless-stopped
     ports:
       - "${HTTP_PORT}:80"
-      - "${HTTPS_PORT}:443"
+EOF
+        if [[ "$ENABLE_HTTPS" == "y" ]]; then
+            printf '      - "%s:443"\n' "$HTTPS_PORT" >> "$COMPOSE_FILE"
+        fi
+        cat >> "$COMPOSE_FILE" <<EOF
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -342,8 +448,10 @@ install_docker() {
 install_native() {
     local cookie_secure="0"
     [[ "$ENABLE_HTTPS" == "y" ]] && cookie_secure="1"
-    curl -fsSL "https://raw.githubusercontent.com/${ECS_RELEASE_REPO:-$RELEASE_REPO}/main/install.sh" |
-        ECS_NONINTERACTIVE=1 ECS_COOKIE_SECURE="$cookie_secure" sh
+    curl -fsSL "https://raw.githubusercontent.com/$SETUP_REPO/main/install.sh" |
+        ECS_NONINTERACTIVE=1 ECS_COOKIE_SECURE="$cookie_secure" \
+        ECS_HTTP_ADDR="127.0.0.1:$APP_PORT" ECS_UPDATE_REPO="$RELEASE_REPO" \
+        ECS_RECONFIGURE="${ECS_RECONFIGURE:-0}" sh
     write_deploy_info
     echo -e "${GREEN}原生部署完成。HTTPS 证书和反向代理请使用已有的 Nginx/Caddy 配置。${RESET}"
 }
@@ -382,8 +490,10 @@ write_deploy_info() {
             address="http://$DOMAIN"
             [[ "$HTTP_PORT" != "80" ]] && address="$address:$HTTP_PORT"
         fi
+    elif [[ "$INSTALL_MODE" == "native" ]]; then
+        address="http://127.0.0.1:$APP_PORT"
     else
-        address="http://$public_ip:${APP_PORT}"
+        address="http://$public_ip:$APP_PORT"
     fi
     cat > "$DEPLOY_DIR/DEPLOY_INFO.txt" <<EOF
 ECS Controller 部署信息
@@ -407,6 +517,7 @@ EOF
         printf '服务菜单: ecs\n'
     else
         printf '服务管理: ecs\n'
+        printf '应用仅监听本机，请通过已配置的反向代理访问。\n'
     fi
     echo "------------------------------------------------------------"
     echo "访问信息已保存到: $DEPLOY_DIR/DEPLOY_INFO.txt"
@@ -442,23 +553,24 @@ uninstall() {
 
 main_menu() {
     require_root
+    init_terminal
     persist_self
     load_state
     while true; do
         echo ""
         echo -e "${BOLD}ECS Controller 部署向导${RESET}"
-        echo "  1) 安装 / 重新部署"
+        echo "  1) 安装 / 重新部署（回车默认）"
         echo "  2) 查看状态"
         echo "  3) 重启服务"
         echo "  4) 查看日志"
         echo "  5) 卸载服务（保留数据）"
         echo "  0) 退出"
         local choice
-        choice=$(ask "请选择" "0")
+        choice=$(ask_choice "请选择" "1" 1 2 3 4 5 0)
         case "$choice" in
             1)
-                collect_config
-                [[ "$INSTALL_MODE" == "docker" ]] && install_docker || install_native
+                prepare_installation
+                return
                 ;;
             2) show_status ;;
             3)

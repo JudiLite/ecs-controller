@@ -296,6 +296,9 @@ ECS_UPDATE_DIR=$data_dir/update
 ECS_UPDATE_REPO=$repo
 EOF
     chmod 0640 "$env_file"
+elif [ "${ECS_RECONFIGURE:-0}" = 1 ]; then
+    sed -i '/^ECS_HTTP_ADDR=/d; /^ECS_COOKIE_SECURE=/d' "$env_file"
+    printf 'ECS_HTTP_ADDR=%s\nECS_COOKIE_SECURE=%s\n' "$listen_addr" "$cookie_secure" >> "$env_file"
 fi
 
 echo "正在配置 $service_manager 后台服务..."
