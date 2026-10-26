@@ -1,14 +1,14 @@
 # ECS 控制台
 
-当前稳定版本：`v1.1.1`
+当前稳定版本：`v1.1.2`
 
-`main` 分支已适配上游 [Kori1c/ecs-controller](https://github.com/Kori1c/ecs-controller) 的 `v1.17.9`（提交 `9440345`），并保留本项目 `v1.1.1` 的功能。GitHub 最新稳定发行版仍为 `v1.1.1`；下述“主分支新增与优化”需要从源码构建使用。
+`v1.1.2` 已适配上游 [Kori1c/ecs-controller](https://github.com/Kori1c/ecs-controller) 的 `v1.17.9`（提交 `9440345`），并保留本项目 `v1.1.1` 的功能。GitHub Releases 提供 Linux 与 Windows 的 AMD64、ARM64 安装包，可通过部署脚本安装或网页在线更新。
 
 一个简单的阿里云 ECS 管理面板，可以查看实例状态和流量，并在流量达到阈值时自动关机，避免产生额外费用。支持精选公共镜像与自定义镜像、多实例轮转与 DDNS 自动切换、Telegram Bot 双向交互控制及费用分析。
 
 > 阿里云流量数据可能存在延迟，自动关机不能保证绝对不会产生费用。
 
-## 主分支新增与优化
+## v1.1.2 新增与优化
 
 - **账号权限检查**：导入或检查账号时展示权限状态，便于定位无法读取实例、流量或费用的原因。
 - **实例清单同步**：接入上游的云端存在状态与资源信息同步；保留两次后台确认、托管 EIP 清理重试、定时策略和轮转关系，避免云端已删除实例继续出现在可操作列表中。
@@ -30,7 +30,7 @@ go build -o ecs-controller ./cmd/ecs-controller
 ECS_DATA_DIR=./data ECS_HTTP_ADDR=127.0.0.1:43211 ./ecs-controller
 ```
 
-普通安装与网页在线更新仍使用稳定发行版。主分支适配提交只运行验证，不自动发布新版本；维护者可手动触发发布流程，或提交不含 `[skip release]` 的更新后发布。
+普通安装与网页在线更新使用最新稳定发行版。源码运行适合开发调试；安装包已包含上面的适配与优化。
 
 ## 部署
 
@@ -126,7 +126,7 @@ sudo ecs logs
 
 ### GitHub Release
 
-本项目通过 GitHub Actions 验证 `main` 分支更新，再构建并发布 Linux AMD64、Linux ARM64、Windows AMD64 和 Windows ARM64 安装包。提交信息含 `[skip release]` 时仅验证，不发布；当前这次上游适配使用此方式保留 `v1.1.1` 稳定版。部署脚本默认从本项目的 [GitHub Releases](https://github.com/JudiLite/ecs-controller/releases) 下载，不依赖上游仓库的 Release。
+本项目通过 GitHub Actions 验证 `main` 分支更新，再构建并发布 Linux AMD64、Linux ARM64、Windows AMD64 和 Windows ARM64 安装包。提交信息含 `[skip release]` 时仅验证，不发布；维护者也可手动触发流程并指定版本号，自动递增以最新公开稳定发行版为准，忽略草稿标签。部署脚本默认从本项目的 [GitHub Releases](https://github.com/JudiLite/ecs-controller/releases) 下载，不依赖上游仓库的 Release。
 
 发布版本采用 GitHub Release 管理。稳定版本保留经过完整验证的里程碑版本；日常小修复会合并到下一次正式版本中，避免更新列表出现大量碎片化版本。
 

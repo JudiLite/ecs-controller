@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号（例如 v1.1.2；留空自动递增）'
+        required: false
+        type: string
 
 concurrency:
   group: ecs-controller-main-release
@@ -59,24 +64,37 @@ jobs:
       - name: Generate next version
         id: version
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          baseline_tag="v1.1.0"
-          latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -n 1)"
-          if [[ -z "$latest_tag" ]]; then
-            next_tag="$baseline_tag"
-            previous_tag=""
-          elif [[ "$(printf '%s\n' "$baseline_tag" "$latest_tag" | sort -V | head -n 1)" != "$baseline_tag" ]]; then
-            next_tag="$baseline_tag"
-            previous_tag=""
-          elif [[ "$latest_tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          set -Eeuo pipefail
+          previous_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
+          if [[ -n "$REQUESTED_VERSION" ]]; then
+            if [[ ! "$REQUESTED_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "版本号必须采用 v1.1.2 格式" >&2
+              exit 1
+            fi
+            next_tag="$REQUESTED_VERSION"
+          elif [[ "$previous_tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             next_tag="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
-            previous_tag="$latest_tag"
           else
-            echo "无法识别当前版本标签：$latest_tag" >&2
+            echo "无法识别当前稳定发行版：$previous_tag" >&2
             exit 1
           fi
+          if [[ "$(printf '%s\n' "$previous_tag" "$next_tag" | sort -V | head -n 1)" != "$previous_tag" || "$next_tag" == "$previous_tag" ]]; then
+            echo "新版本必须高于当前稳定发行版：$previous_tag" >&2
+            exit 1
+          fi
+          if git rev-parse --verify "refs/tags/$next_tag" >/dev/null 2>&1; then
+            tag_commit="$(git rev-list -n 1 "$next_tag")"
+            if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+              echo "版本标签已指向其他提交：$next_tag ($tag_commit)" >&2
+              exit 1
+            fi
+          fi
           echo "tag=$next_tag" >> "$GITHUB_OUTPUT"
-          echo "previous_tag=${previous_tag:-}" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
 
       - name: Build release binaries
         env:
