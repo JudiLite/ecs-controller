@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -213,7 +214,8 @@ func TestMonitorCycleRunsDifferentAccountGroupsConcurrently(t *testing.T) {
 	for _, group := range []string{"group-a", "group-b"} {
 		clients[group] = &blockingMonitorCloud{fakeCloud: &fakeCloud{outboundPoints: 1, outboundLastMS: time.Now().UnixMilli()}, key: group, entered: entered, release: release}
 	}
-	w := &Worker{Store: s, CloudFactory: func(group app.AccountGroup) cloud.Client { return clients[group.AccessKeyID] }}
+	w := &Worker{Store: s, CloudFactory: func(group app.AccountGroup) cloud.Client { return clients[group.AccessKeyID] },
+		InventorySync: func(context.Context) (int, error) { return 0, nil }}
 	done := make(chan struct{})
 	go func() {
 		w.runMonitorCycle(context.Background(), time.Minute)
@@ -926,6 +928,17 @@ func TestQueueMissingInstanceCleanupHidesConfirmedNotFoundInstance(t *testing.T)
 	if err != nil || job == nil || job.Kind != "delete_instance" || job.EntityKey != fmt.Sprint(accounts[0].ID) {
 		t.Fatalf("missing cleanup job: %#v %v", job, err)
 	}
+	fake := &fakeCloud{describeStatus: "Running"}
+	w.CloudFactory = func(app.AccountGroup) cloud.Client { return fake }
+	if err := w.deleteInstance(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	if fake.stopped != 0 || fake.deleted != 0 {
+		t.Fatal("inventory cleanup changed a live cloud instance")
+	}
+	if account, err := s.Account(accounts[0].ID, false); err != nil || account.InstanceStatus != "Running" {
+		t.Fatalf("live instance did not return to the panel: %#v %v", account, err)
+	}
 }
 
 func TestQueueMissingInstanceCleanupIgnoresOtherErrors(t *testing.T) {
@@ -1217,5 +1230,56 @@ func TestTelegramMenuUsesCompactDrillDownLayout(t *testing.T) {
 	instances := w.instancesKeyboard(1)["inline_keyboard"].([][]map[string]string)
 	if len(instances) < 2 || !strings.HasPrefix(instances[0][0]["text"], "🟢 ") || instances[0][0]["callback_data"] != "m:inst:1:1" {
 		t.Fatalf("instance menu does not expose status and page: %#v", instances)
+	}
+}
+
+// orphanCloud reports an empty inventory and confirms that every instance is
+// gone, which is what the cloud looks like after the user deleted it in the
+// Aliyun console.
+type orphanCloud struct {
+	fakeCloud
+	mu sync.Mutex
+}
+
+func (o *orphanCloud) DescribeInstances(context.Context, string) ([]cloud.Instance, error) {
+	o.mu.Lock()
+	o.inventoryCalls++
+	o.mu.Unlock()
+	return nil, nil
+}
+
+func (o *orphanCloud) DescribeInstance(context.Context, string, string) (*cloud.Instance, error) {
+	return nil, &cloud.APIError{Code: "InvalidInstanceId.NotFound", HTTPStatus: 404}
+}
+
+func TestOrphanRowsOutsideGroupsArePurged(t *testing.T) {
+	s, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// Only one group is configured, but the database still holds a row for a
+	// region that is no longer part of any group.
+	if err := s.SaveGroups([]app.AccountGroup{{GroupKey: "g", AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-test", MaxTraffic: 200}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertAccount(app.Account{AccessKeyID: "ak", AccessKeySecret: "sk", RegionID: "cn-orphan", GroupKey: "old-group", InstanceID: "i-gone", InstanceStatus: "Running"}); err != nil {
+		t.Fatal(err)
+	}
+	cloudClient := &orphanCloud{}
+	w := &Worker{Store: s, CloudFactory: func(app.AccountGroup) cloud.Client { return cloudClient }}
+	start := time.Date(2026, 8, 31, 12, 0, 0, 0, time.Local)
+
+	w.reconcileCloudInventory(context.Background(), start)
+
+	rows, err := s.LoadAccounts(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("orphaned instance survived reconciliation: %#v", rows)
+	}
+	if job, err := s.ClaimJob(time.Minute); err != nil || job == nil || job.Kind != "delete_instance" {
+		t.Fatalf("orphan cleanup was not queued: %+v %v", job, err)
 	}
 }

@@ -162,7 +162,7 @@ jobs:
           tag: ${{ steps.version.outputs.tag }}
           commit: ${{ github.sha }}
           name: ${{ steps.version.outputs.name }}
-          body: 更新与优化。
+          body: 新增本地密码重置，改进实例同步、费用显示与设置保存。
           artifacts: ${{ runner.temp }}/ecs-controller-release/*
           artifactErrorsFailBuild: true
           allowUpdates: false

@@ -61,6 +61,7 @@ func (s *Server) SyncInventory(ctx context.Context) (int, error) {
 			failures = append(failures, result.key+": "+result.err.Error())
 		}
 	}
+	s.purgeOrphanedInstances(ctx, groups, &failures)
 	if len(failures) > 0 {
 		sort.Strings(failures)
 		return total, fmt.Errorf("部分账号组同步失败: %s", strings.Join(failures, "; "))

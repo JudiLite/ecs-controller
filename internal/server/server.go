@@ -24,6 +24,7 @@ import (
 	"github.com/JudiLite/ecs-controller/internal/app"
 	"github.com/JudiLite/ecs-controller/internal/cloud"
 	"github.com/JudiLite/ecs-controller/internal/ddns"
+	"github.com/JudiLite/ecs-controller/internal/inventory"
 	"github.com/JudiLite/ecs-controller/internal/notify"
 	"github.com/JudiLite/ecs-controller/internal/store"
 )
@@ -337,6 +338,44 @@ func (s *Server) authenticatedAction(w http.ResponseWriter, r *http.Request, act
 	case "retry_runtime_job":
 		s.retryRuntimeJob(w, data)
 	case "save_config":
+		scope := stringValue(data["save_scope"])
+		delete(data, "save_scope")
+		if scope == "rotation" {
+			raw, exists := data["RotationGroups"]
+			if !exists || len(data) != 1 {
+				s.error(w, 400, "轮转分组保存范围无效")
+				return
+			}
+			if err := s.saveRotationGroups(raw); err != nil {
+				s.error(w, 400, err.Error())
+				return
+			}
+			s.json(w, 200, map[string]any{"success": true, "RotationGroups": s.publicRotationGroups()})
+			return
+		}
+		if scope == "accounts" {
+			if len(data) != 1 {
+				s.error(w, 400, "账号保存不能包含系统设置")
+				return
+			}
+			warnings, err := s.saveAccounts(data)
+			if err != nil {
+				s.error(w, 400, err.Error())
+				return
+			}
+			s.json(w, 200, map[string]any{"success": true, "warnings": warnings})
+			return
+		}
+		if scope == "settings" {
+			if _, ok := data["Accounts"]; ok {
+				s.error(w, 400, "系统设置保存不能包含账号列表")
+				return
+			}
+		}
+		if scope != "" && scope != "settings" {
+			s.error(w, 400, "保存范围无效")
+			return
+		}
 		if err := s.saveConfig(data); err != nil {
 			s.error(w, 400, err.Error())
 		} else {
@@ -423,15 +462,20 @@ func (s *Server) authenticatedAction(w http.ResponseWriter, r *http.Request, act
 	}
 }
 
-func (s *Server) config(w http.ResponseWriter) {
-	settings := s.Store.Settings()
-	groups, _ := s.Store.LoadGroups()
+func (s *Server) publicRotationGroups() []app.RotationGroup {
 	rotationGroups, _ := s.Store.LoadRotationGroups()
 	for i := range rotationGroups {
 		rotationGroups[i].DNS.CloudflareToken = masked(rotationGroups[i].DNS.CloudflareToken)
 		rotationGroups[i].DNS.DNSPodSecretKey = masked(rotationGroups[i].DNS.DNSPodSecretKey)
 		rotationGroups[i].DNS.AliDNSSecret = masked(rotationGroups[i].DNS.AliDNSSecret)
 	}
+	return rotationGroups
+}
+
+func (s *Server) config(w http.ResponseWriter) {
+	settings := s.Store.Settings()
+	groups, _ := s.Store.LoadGroups()
+	rotationGroups := s.publicRotationGroups()
 	accounts, _ := s.Store.LoadAccounts(false)
 	type metric struct {
 		used         float64
@@ -534,8 +578,11 @@ func (s *Server) config(w http.ResponseWriter) {
 			billing = map[string]any{"monthly_cost": nil, "balance": nil, "currency": map[bool]string{true: "USD", false: "CNY"}[g.SiteType == "international"], "last_updated": nil}
 		}
 		billing["enabled"] = settings["enable_billing"] == "1"
-		if trafficStatus == "error" {
-			billing["error"] = "流量接口异常，费用数据可能延迟"
+		if billing["currency"] == nil || billing["currency"] == "" {
+			billing["currency"] = map[bool]string{true: "USD", false: "CNY"}[g.SiteType == "international"]
+		}
+		if billing["enabled"] == true && (billing["monthly_cost"] == nil || billing["balance"] == nil) {
+			billing["error"] = "部分费用数据暂未获取或已过期，后台将自动重试"
 		}
 		usagePercent := 0.0
 		if g.MaxTraffic > 0 {
@@ -807,6 +854,12 @@ func trafficScope(status string) string {
 }
 
 func (s *Server) saveConfig(data map[string]any) error {
+	if len(data) == 1 {
+		if _, ok := data["Accounts"]; ok {
+			_, err := s.saveAccounts(data)
+			return err
+		}
+	}
 	if raw, ok := data["Accounts"].([]any); ok {
 		if err := validateAccountRegionUniqueness(raw); err != nil {
 			return err
@@ -870,23 +923,7 @@ func (s *Server) saveConfig(data map[string]any) error {
 		_ = s.Store.SetSetting("app_logo_url", stringValue(brand["logo_url"]))
 	}
 	if raw, exists := data["RotationGroups"]; exists {
-		encoded, err := json.Marshal(raw)
-		if err != nil {
-			return fmt.Errorf("分组配置无效")
-		}
-		var rotationGroups []app.RotationGroup
-		if err := json.Unmarshal(encoded, &rotationGroups); err != nil {
-			return fmt.Errorf("分组配置无效")
-		}
-		for i := range rotationGroups {
-			if rotationGroups[i].ID == "" {
-				rotationGroups[i].ID = randomToken(9)
-			}
-		}
-		if err := s.validateRotationGroups(rotationGroups); err != nil {
-			return err
-		}
-		if err := s.Store.SaveRotationGroups(rotationGroups); err != nil {
+		if err := s.saveRotationGroups(raw); err != nil {
 			return err
 		}
 	}
@@ -896,7 +933,7 @@ func (s *Server) saveConfig(data map[string]any) error {
 				return err
 			}
 		}
-		if err := s.saveSecret("notify_password", stringValue(notify["password"])); err != nil {
+		if err := s.saveSecretField("notify_password", notify, "password"); err != nil {
 			return err
 		}
 		if tg, ok := notify["telegram"].(map[string]any); ok {
@@ -905,10 +942,10 @@ func (s *Server) saveConfig(data map[string]any) error {
 					return err
 				}
 			}
-			if err := s.saveSecret("notify_tg_token", stringValue(tg["token"])); err != nil {
+			if err := s.saveSecretField("notify_tg_token", tg, "token"); err != nil {
 				return err
 			}
-			if err := s.saveSecret("notify_tg_proxy_pass", stringValue(tg["proxy_pass"])); err != nil {
+			if err := s.saveSecretField("notify_tg_proxy_pass", tg, "proxy_pass"); err != nil {
 				return err
 			}
 		}
@@ -919,6 +956,23 @@ func (s *Server) saveConfig(data map[string]any) error {
 				}
 			}
 		}
+	}
+	if _, ok := data["Accounts"]; ok {
+		_, err := s.saveAccounts(data)
+		return err
+	}
+
+	return nil
+}
+
+func (s *Server) saveAccounts(data map[string]any) ([]string, error) {
+	var warnings []string
+	raw, ok := data["Accounts"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("账号列表格式无效")
+	}
+	if err := validateAccountRegionUniqueness(raw); err != nil {
+		return nil, err
 	}
 	if raw, ok := data["Accounts"].([]any); ok {
 		groups := make([]app.AccountGroup, 0, len(raw))
@@ -944,30 +998,31 @@ func (s *Server) saveConfig(data map[string]any) error {
 			}
 		}
 		if err := s.Store.SaveGroups(groups); err != nil {
-			return err
+			return warnings, err
 		}
 		// SaveGroups fills in derived keys and persists encrypted secrets on a
 		// copy, so reload the canonical groups before applying or syncing them.
 		groups, err := s.Store.LoadGroups()
 		if err != nil {
-			return err
+			return warnings, err
 		}
 		_, err = s.Store.RemoveAccountsOutsideGroups(groups)
 		if err != nil {
-			return err
+			return warnings, err
 		}
 		for _, group := range groups {
 			if err := s.Store.ApplyGroupSettings(group); err != nil {
-				return err
+				return warnings, err
 			}
 			if s.CloudFactory != nil {
 				if _, syncErr := s.syncGroup(group.GroupKey); syncErr != nil {
 					s.Store.AddLog("warning", "账号组同步失败: "+syncErr.Error())
+					warnings = append(warnings, "账号配置已保存，但部分实例同步未完成，请重试手动同步")
 				}
 			}
 		}
 	}
-	return nil
+	return warnings, nil
 }
 
 func validateAccountRegionUniqueness(raw []any) error {
@@ -993,6 +1048,26 @@ func validateAccountRegionUniqueness(raw []any) error {
 		seen[key] = struct{}{}
 	}
 	return nil
+}
+
+func (s *Server) saveRotationGroups(raw any) error {
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("分组配置无效")
+	}
+	var groups []app.RotationGroup
+	if err := json.Unmarshal(encoded, &groups); err != nil || groups == nil {
+		return fmt.Errorf("分组配置无效")
+	}
+	for index := range groups {
+		if groups[index].ID == "" {
+			groups[index].ID = randomToken(9)
+		}
+	}
+	if err := s.validateRotationGroups(groups); err != nil {
+		return err
+	}
+	return s.Store.SaveRotationGroups(groups)
 }
 
 func (s *Server) validateRotationGroups(groups []app.RotationGroup) error {
@@ -2197,6 +2272,9 @@ func (s *Server) syncAllInstances(w http.ResponseWriter) {
 			failures = append(failures, group.GroupKey+": "+err.Error())
 		}
 	}
+	// Also sweep rows that no configured group covers, so a manual sync always
+	// ends with the same instance count as the Aliyun console.
+	s.purgeOrphanedInstances(rctx(), groups, &failures)
 	if len(failures) > 0 {
 		s.error(w, 400, "部分账号组同步失败: "+strings.Join(failures, "; "))
 		return
@@ -2204,6 +2282,28 @@ func (s *Server) syncAllInstances(w http.ResponseWriter) {
 	s.status(w)
 }
 
+// purgeOrphanedInstances removes rows whose (access key, region) pair is no
+// longer part of any configured group and whose cloud instance is confirmed
+// gone. Errors are collected so one failing account cannot hide the others.
+func (s *Server) purgeOrphanedInstances(ctx context.Context, groups []app.AccountGroup, failures *[]string) {
+	orphans, err := inventory.OrphanGroups(s.Store, groups)
+	if err != nil {
+		*failures = append(*failures, "读取待清理实例失败: "+err.Error())
+		return
+	}
+	for _, group := range orphans {
+		client := s.cloudClient(app.Account{AccessKeyID: group.AccessKeyID, AccessKeySecret: group.AccessKeySecret, RegionID: group.RegionID, SiteType: group.SiteType})
+		if client == nil {
+			continue
+		}
+		groupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		_, purgeErr := inventory.PurgeAbsent(groupCtx, s.Store, group, client, time.Now(), s.Log.Printf)
+		cancel()
+		if purgeErr != nil {
+			*failures = append(*failures, group.RegionID+": "+purgeErr.Error())
+		}
+	}
+}
 func (s *Server) fetchInstances(w http.ResponseWriter, data map[string]any) {
 	accessKey, secret, region := stringValue(data["accessKeyId"]), stringValue(data["accessKeySecret"]), stringValue(data["regionId"])
 	if accessKey == "" || secret == "" || region == "" {
@@ -2456,8 +2556,20 @@ func accountDisplay(account app.Account) string {
 	return account.AccessKeyID
 }
 
+func (s *Server) saveSecretField(key string, data map[string]any, field string) error {
+	value, present := data[field]
+	if !present {
+		return nil
+	}
+	text, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("密钥字段格式无效")
+	}
+	return s.saveSecret(key, text)
+}
+
 func (s *Server) saveSecret(key, value string) error {
-	if value == "" || value == "********" {
+	if value == "********" {
 		return nil
 	}
 	sealed, err := s.Store.Seal(value)

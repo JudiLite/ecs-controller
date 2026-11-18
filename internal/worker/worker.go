@@ -97,6 +97,46 @@ func (w *Worker) reconcileCloudInventory(ctx context.Context, now time.Time) {
 			w.Store.AddLog("info", fmt.Sprintf("云端实例自动对账完成 [%s/%s]：云端 %d 台，清理 %d 台，恢复 %d 台", group.Remark, group.RegionID, result.RemoteCount, result.Purged, result.Recovered))
 		}
 	}
+	w.purgeOrphanedRows(ctx, groups, now)
+}
+
+// purgeOrphanedRows cleans rows whose (account, region) pair is no longer
+// described by any configured group. Such a row is invisible to the per-group
+// inventory pass, so without this sweep it could keep showing an instance that
+// was deleted in the Aliyun console.
+func (w *Worker) purgeOrphanedRows(ctx context.Context, groups []app.AccountGroup, now time.Time) {
+	orphans, err := inventory.OrphanGroups(w.Store, groups)
+	if err != nil {
+		w.Store.AddLog("warning", "读取待清理实例失败: "+err.Error())
+		return
+	}
+	for _, group := range orphans {
+		key := group.AccessKeyID + "|" + group.RegionID
+		attemptKey := "inventory_orphan_attempt_" + key
+		lastAttempt, _ := strconv.ParseInt(w.Store.GetSetting(attemptKey, "0"), 10, 64)
+		if lastAttempt > 0 && now.Unix()-lastAttempt < int64(cloudInventoryInterval.Seconds()) {
+			continue
+		}
+		_ = w.Store.SetSetting(attemptKey, strconv.FormatInt(now.Unix(), 10))
+		client := w.cloudClient(group)
+		if client == nil {
+			continue
+		}
+		syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		var logf func(string, ...any)
+		if w.Log != nil {
+			logf = w.Log.Printf
+		}
+		purged, purgeErr := inventory.PurgeAbsent(syncCtx, w.Store, group, client, now, logf)
+		cancel()
+		if purgeErr != nil {
+			w.Store.AddLog("warning", fmt.Sprintf("清理账号组外的残留实例失败 [%s]: %v", group.RegionID, purgeErr))
+			continue
+		}
+		if purged > 0 {
+			w.Store.AddLog("info", fmt.Sprintf("已清理账号组配置之外的残留实例 %d 台 [%s]", purged, group.RegionID))
+		}
+	}
 }
 
 func (w *Worker) runMonitorCycle(ctx context.Context, interval time.Duration) {
@@ -171,7 +211,7 @@ func (w *Worker) runMonitorCycle(ctx context.Context, interval time.Duration) {
 			defer func() { <-semaphore }()
 			for _, account := range items {
 				accountCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-				runErr := w.monitorAccount(accountCtx, account, now, apiInterval, threshold, thresholdAction, shutdownMode, keepAlive, monthlyAutoStart, enableBilling)
+				runErr := w.monitorAccount(accountCtx, account, now, apiInterval, threshold, thresholdAction, shutdownMode, keepAlive, monthlyAutoStart)
 				cancel()
 				results <- runErr
 			}
@@ -184,6 +224,11 @@ func (w *Worker) runMonitorCycle(ctx context.Context, interval time.Duration) {
 		if runErr != nil {
 			failures++
 		}
+	}
+	if enableBilling {
+		billingCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		w.refreshBillingAccounts(billingCtx, accounts, now)
+		cancel()
 	}
 	w.runDailyTrafficSummary(ctx, now)
 	w.runBillingAlerts(ctx, now)
@@ -198,7 +243,7 @@ func (w *Worker) runMonitorCycle(ctx context.Context, interval time.Duration) {
 	w.finishRuntime(runtimeInstanceMonitor, started, detail, time.Now().Add(interval), cycleErr)
 }
 
-func (w *Worker) monitorAccount(ctx context.Context, account app.Account, now time.Time, apiInterval int64, threshold float64, thresholdAction, shutdownMode string, keepAlive, monthlyAutoStart, enableBilling bool) error {
+func (w *Worker) monitorAccount(ctx context.Context, account app.Account, now time.Time, apiInterval int64, threshold float64, thresholdAction, shutdownMode string, keepAlive, monthlyAutoStart bool) error {
 	client := w.cloudClient(app.AccountGroup{AccessKeyID: account.AccessKeyID, AccessKeySecret: account.AccessKeySecret, RegionID: account.RegionID, SiteType: account.SiteType})
 	if client == nil {
 		return fmt.Errorf("实例 %s 的云客户端未配置", account.InstanceID)
@@ -221,14 +266,16 @@ func (w *Worker) monitorAccount(ctx context.Context, account app.Account, now ti
 			return nil
 		}
 		metadata := map[string]any{"health_status": "error", "traffic_api_status": "unknown", "traffic_api_message": describeErr.Error()}
-		if cloud.IsCredentialError(describeErr) {
-			metadata["protection_suspended"] = true
-			metadata["protection_suspend_reason"] = "credential_invalid"
-			if account.ProtectionNotifiedAt == 0 {
-				w.dispatchEvent(ctx, notify.Event{Title: "阿里云凭据异常", Summary: "已暂停自动停机保护", AccountID: accountLabel(account), Text: fmt.Sprintf("【ECS 控制台】阿里云凭据异常\n账号/实例: %s\n实例 ID: %s\n区域: %s\n错误: %s\n系统已暂停自动停机保护，请更新 AK 后恢复。", accountLabel(account), account.InstanceID, account.RegionID, describeErr.Error()), Fields: map[string]string{"instance_id": account.InstanceID, "reason": "credential_invalid"}})
-				account.ProtectionNotifiedAt = now.Unix()
-				metadata["protection_suspend_notified_at"] = account.ProtectionNotifiedAt
+		reason := protectionErrorReason(describeErr)
+		if reason == "credential_invalid" || reason == "permission_denied" {
+			if account.ProtectionSuspendReason != reason {
+				account.ProtectionNotifiedAt = 0
 			}
+			account.ProtectionSuspended, account.ProtectionSuspendReason = true, reason
+			w.notifyProtectionError(ctx, &account, describeErr, now)
+			metadata["protection_suspended"] = true
+			metadata["protection_suspend_reason"] = reason
+			metadata["protection_suspend_notified_at"] = account.ProtectionNotifiedAt
 		}
 		_ = w.Store.UpdateAccountStatus(account.ID, account.TrafficUsed, account.InstanceStatus, now.Unix(), metadata)
 		return describeErr
@@ -245,20 +292,7 @@ func (w *Worker) monitorAccount(ctx context.Context, account app.Account, now ti
 	}
 	traffic, trafficStatus, trafficMessage, trafficErr := w.refreshTraffic(ctx, client, account, now)
 	if trafficErr != nil {
-		reason := "traffic_api_error"
-		if cloud.IsCredentialError(trafficErr) {
-			reason = "credential_invalid"
-		}
-		account.TrafficAPIStatus, account.TrafficAPIMessage = "error", trafficMessage
-		account.ProtectionSuspended, account.ProtectionSuspendReason = true, reason
-		account.UpdatedAt, account.TrafficBillingMonth = now.Unix(), now.Format("2006-01")
-		if available := w.applyTrafficProtection(ctx, client, &account, now, threshold, thresholdAction, shutdownMode, account.TrafficUsed, false, keepAlive, monthlyAutoStart); available {
-			account.ProtectionSuspended, account.ProtectionSuspendReason = false, ""
-		}
-		if reason == "credential_invalid" && account.ProtectionNotifiedAt == 0 {
-			w.dispatchEvent(ctx, notify.Event{Title: "阿里云凭据异常", Summary: "已暂停自动停机保护", AccountID: accountLabel(account), Text: fmt.Sprintf("【ECS 控制台】阿里云凭据异常\n账号/实例: %s\n实例 ID: %s\n错误: %s\n系统已暂停自动停机保护，请更新 AK 后恢复。", accountLabel(account), account.InstanceID, trafficErr.Error()), Fields: map[string]string{"instance_id": account.InstanceID, "reason": "credential_invalid"}})
-			account.ProtectionNotifiedAt = now.Unix()
-		}
+		w.handleTrafficError(ctx, client, &account, now, threshold, thresholdAction, shutdownMode, trafficMessage, trafficErr, keepAlive, monthlyAutoStart)
 		if err := w.Store.UpsertAccount(account); err != nil {
 			w.Store.AddLog("error", "保存流量保护状态失败: "+err.Error())
 			return err
@@ -272,33 +306,6 @@ func (w *Worker) monitorAccount(ctx context.Context, account app.Account, now ti
 		account.ProtectionNotifiedAt = 0
 	}
 	_ = w.Store.AddTrafficHistory(account.ID, traffic, now)
-	if enableBilling && account.InstanceID != "" {
-		cycle := now.Format("2006-01")
-		if billingClient, ok := client.(cloud.BillingClient); ok {
-			if _, cacheOK := w.Store.GetBillingCache(account.ID, "balance", "", 6*time.Hour); !cacheOK {
-				if balance, currency, balanceErr := billingClient.GetAccountBalance(ctx, account.SiteType); balanceErr == nil {
-					_ = w.Store.SetBillingCache(account.ID, "balance", "", map[string]any{"balance": balance, "currency": currency})
-				} else {
-					_ = w.Store.SetBillingCache(account.ID, "balance", "", map[string]any{"error": balanceErr.Error()})
-				}
-			}
-			if _, cacheOK := w.Store.GetBillingCache(account.ID, "bill_overview", cycle, 6*time.Hour); !cacheOK {
-				if total, currency, overviewErr := billingClient.GetBillOverview(ctx, account.SiteType, cycle); overviewErr == nil {
-					_ = w.Store.SetBillingCache(account.ID, "bill_overview", cycle, map[string]any{"monthly_cost": total, "currency": currency})
-				} else {
-					_ = w.Store.SetBillingCache(account.ID, "bill_overview", cycle, map[string]any{"error": overviewErr.Error()})
-				}
-			}
-		}
-		if _, ok := w.Store.GetBillingCache(account.ID, "instance_bill", cycle, 6*time.Hour); !ok {
-			balance, monthlyCost, currency, billingErr := client.GetBilling(ctx, account.SiteType, account.InstanceID, cycle)
-			if billingErr != nil {
-				_ = w.Store.SetBillingCache(account.ID, "instance_bill", cycle, map[string]any{"error": billingErr.Error()})
-			} else {
-				_ = w.Store.SetBillingCache(account.ID, "instance_bill", cycle, map[string]any{"monthly_cost": monthlyCost, "balance": balance, "currency": currency})
-			}
-		}
-	}
 	w.applyTrafficProtection(ctx, client, &account, now, threshold, thresholdAction, shutdownMode, traffic, true, keepAlive, monthlyAutoStart)
 	if err := w.Store.UpsertAccount(account); err != nil {
 		w.Store.AddLog("error", "保存监控状态失败: "+err.Error())
@@ -782,6 +789,14 @@ func (w *Worker) execute(ctx context.Context, job *store.Job) error {
 }
 
 func (w *Worker) deleteInstance(ctx context.Context, job *store.Job) error {
+	var payload struct {
+		ConfirmedMissing bool `json:"confirmedMissing"`
+	}
+	if job.Payload != "" {
+		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+			return err
+		}
+	}
 	id, err := strconv.ParseInt(job.EntityKey, 10, 64)
 	if err != nil {
 		return err
@@ -796,7 +811,7 @@ func (w *Worker) deleteInstance(ctx context.Context, job *store.Job) error {
 	}
 	status := account.InstanceStatus
 	notFound := false
-	if status != "Stopped" && status != "Released" {
+	if account.CloudPresence == "missing" || (status != "Stopped" && status != "Released") {
 		instance, describeErr := client.DescribeInstance(ctx, account.RegionID, account.InstanceID)
 		if cloud.IsNotFound(describeErr) {
 			notFound = true
@@ -807,6 +822,10 @@ func (w *Worker) deleteInstance(ctx context.Context, job *store.Job) error {
 		} else {
 			status = instance.Status
 		}
+	}
+	if payload.ConfirmedMissing && !notFound {
+		_, err := w.Store.DB.Exec(`UPDATE accounts SET is_deleted=0, cloud_presence='present', instance_status=?, missing_count=0, missing_since=0, updated_at=0 WHERE id=? AND cloud_presence='missing'`, status, id)
+		return err
 	}
 	if !notFound && status != "Stopped" && status != "Released" {
 		if status != "Stopping" {

@@ -153,13 +153,7 @@ func IsNotFound(err error) bool {
 		return false
 	}
 	var apiErr *APIError
-	if errors.As(err, &apiErr) && (strings.Contains(strings.ToLower(apiErr.Code), "notfound") || strings.Contains(strings.ToLower(apiErr.Code), "not_found")) {
-		return true
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "invalidinstanceid.notfound") ||
-		strings.Contains(message, "specified instanceid does not exist") ||
-		strings.Contains(message, "instanceid does not exist")
+	return errors.As(err, &apiErr) && apiErr != nil && !IsCredentialError(err) && !IsPermissionError(err) && (strings.Contains(strings.ToLower(apiErr.Code), "notfound") || strings.Contains(strings.ToLower(apiErr.Code), "not_found"))
 }
 
 // IsEIPAssociationConflict reports the transient error returned while an
@@ -217,16 +211,27 @@ func IsNotInCommonBandwidthPackage(err error) bool {
 }
 
 func IsCredentialError(err error) bool {
-	if err == nil {
+	return hasAPIErrorCode(err, "invalidaccesskeyid", "invalidaccesskeysecret", "signaturedoesnotmatch", "invalidsignature", "signatureexpired", "invalidsecuritytoken", "securitytokenexpired", "missingsecuritytoken")
+}
+
+func IsPermissionError(err error) bool {
+	return hasAPIErrorCode(err, "forbidden", "unauthorized", "unauthorizedoperation", "nopermission")
+}
+
+func hasAPIErrorCode(err error, families ...string) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr == nil {
 		return false
 	}
-	var apiErr *APIError
-	if errors.As(err, &apiErr) {
-		code := strings.ToLower(apiErr.Code)
-		return strings.Contains(code, "accesskey") || strings.Contains(code, "signature") || strings.Contains(code, "forbidden") || strings.Contains(code, "unauthorized") || strings.Contains(code, "invalidaccess")
+	// Transport errors contain signed URLs; AccessKeyId and Signature query
+	// parameters are not evidence of a provider authentication failure.
+	code := strings.ToLower(strings.TrimSpace(apiErr.Code))
+	for _, family := range families {
+		if code == family || strings.HasPrefix(code, family+".") {
+			return true
+		}
 	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "accesskey") || strings.Contains(message, "signature") || strings.Contains(message, "unauthorized")
+	return false
 }
 
 func (e *APIError) Error() string { return fmt.Sprintf("aliyun %s: %s", e.Code, e.Message) }

@@ -1968,15 +1968,19 @@
             box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 24%, transparent), 0 6px 14px color-mix(in srgb, var(--accent-strong) 22%, transparent);
         }
 
-        .settings-save-enter-active,
+        .settings-save-enter-active {
+            transition: opacity .16s ease-out, transform .2s cubic-bezier(.22, .61, .36, 1);
+        }
+
         .settings-save-leave-active {
-            transition: opacity .2s ease, transform .24s cubic-bezier(.22, .61, .36, 1);
+            transition: opacity .1s ease-in, transform .1s ease-in;
+            pointer-events: none;
         }
 
         .settings-save-enter-from,
         .settings-save-leave-to {
             opacity: 0;
-            transform: translateY(10px) scale(.98);
+            transform: translateY(6px);
         }
 
         .account-card-grid {
@@ -4431,7 +4435,16 @@
         .settings-panel-enter-from,
         .settings-panel-leave-to {
             opacity: 0;
-            transform: translateY(8px);
+            transform: translateY(4px);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .settings-panel-enter-active,
+            .settings-panel-leave-active,
+            .settings-save-enter-active,
+            .settings-save-leave-active {
+                transition: none;
+            }
         }
 
         .two-col-grid {
@@ -5807,7 +5820,7 @@
                                     </div>
                                     <div class="summary-cell center-column">
                                         <div class="account-billing">
-                                            <template v-if="acc.billing && acc.billing.enabled && !acc.billing.error">
+                                            <template v-if="acc.billing && acc.billing.enabled">
                                                 <div class="account-billing__line">
                                                     本月消费
                                                     <span class="account-billing__value">{{ formatCurrencyValue(acc.billing.monthly_cost, acc.billing.currency) }}</span>
@@ -5816,6 +5829,7 @@
                                                     账户余额
                                                     <span class="account-billing__value">{{ formatCurrencyValue(acc.billing.balance, acc.billing.currency) }}</span>
                                                 </div>
+                                                <div v-if="acc.billing.error" class="account-billing__error">{{ acc.billing.error }}</div>
                                                 <div v-if="acc.billing.last_updated" class="account-billing__hint">{{ acc.billing.last_updated }} 更新</div>
                                                 <button @click.stop="openBillingDetails(acc)" class="account-billing__details-button">历史消费</button>
                                             </template>
@@ -5889,11 +5903,12 @@
                                             :style="{ width: Math.min(acc.usagePercent || 0, 100) + '%' }"></div>
                                     </div>
                                     <div v-if="hasTrafficIssue(acc)" class="text-xs text-[#dc2626]">{{ trafficIssueText(acc) }}</div>
-                                    <div v-if="acc.billing && acc.billing.enabled && !acc.billing.error">
+                                    <div v-if="acc.billing && acc.billing.enabled">
                                         <div class="account-card-grid__metric">
                                             <span class="account-card-grid__label">消费情况</span>
                                             <strong class="account-card-grid__value">本月 {{ formatCurrencyValue(acc.billing.monthly_cost, acc.billing.currency) }} · 余额 {{ formatCurrencyValue(acc.billing.balance, acc.billing.currency) }}</strong>
                                         </div>
+                                        <div v-if="acc.billing.error" class="account-billing__error">{{ acc.billing.error }}</div>
                                         <button @click="openBillingDetails(acc)" class="account-billing__details-button" style="margin-top: 8px;">查看历史消费</button>
                                     </div>
                                     <div v-else-if="acc.billing && acc.billing.error" class="account-billing__error">{{ acc.billing.error }}</div>
@@ -6221,8 +6236,9 @@
                                             <span class="switch-slider"></span>
                                         </span>
 	                                    </label>
-	                                    <input v-model="config.Notification.telegram.token" class="glass-input" placeholder="机器人令牌">
-	                                    <input v-model="config.Notification.telegram.chat_id" class="glass-input" placeholder="接收会话编号">
+	                                    <input v-model="config.Notification.telegram.token" type="password" autocomplete="new-password" class="glass-input" placeholder="Bot Token">
+                                        <p class="settings-hint">星号表示已有 Token；保持星号可保留，删空后保存会清除已存 Token。</p>
+	                                    <input v-model="config.Notification.telegram.chat_id" class="glass-input" placeholder="User ID">
 	                                    <app-select
                                         v-model="config.Notification.telegram.proxy_type"
                                         class="glass-select"
@@ -6550,9 +6566,9 @@
         </div>
 
         <transition name="settings-save">
-            <div v-if="settingsDirty" class="settings-save-float">
-                <span class="settings-save-float__hint">系统设置有未保存改动</span>
-                <button @click="saveConfig" class="solid-button">保存系统设置</button>
+            <div v-if="settingsDirty || savingSettings" class="settings-save-float">
+                <span class="settings-save-float__hint" role="status">{{ savingSettings ? '正在保存系统设置' : '系统设置有未保存改动' }}</span>
+                <button @click="saveConfig" class="solid-button" :disabled="savingSettings">{{ savingSettings ? '保存中…' : '保存系统设置' }}</button>
             </div>
         </transition>
 
@@ -8290,13 +8306,8 @@
                     return '流量同步失败';
                 };
                 const formatCurrencyValue = (value, currency = 'CNY') => {
-                    const amount = Number(value ?? 0);
-                    if (!Number.isFinite(amount)) {
-                        return '--';
-                    }
-
-                    const symbol = currency === 'USD' ? '$' : currency === 'CNY' ? '¥' : `${currency} `;
-                    return `${symbol}${amount.toFixed(2).replace(/\.00$/, '')}`;
+                    if (value == null || typeof value === 'boolean' || (typeof value === 'string' && !value.trim())) return '--';
+                    return ECSBillingDisplay.amount(value, currency);
                 };
                 const formatBillingAmount = ECSBillingDisplay.amount;
                 const formatBillingDate = (value) => {
@@ -9321,24 +9332,51 @@
                     return accessKeyID && regionID ? `${accessKeyID}|${regionID}` : '';
                 };
 
-                const persistConfig = async (successMessage = '配置已保存并完成实例同步') => {
-                    if (!validateAccounts()) return;
+                const persistConfig = async (successMessage = '系统设置已保存', scope = 'settings') => {
+                    if (scope === 'accounts' && !validateAccounts()) return;
+                    const payload = scope === 'accounts'
+                        ? { save_scope: 'accounts', Accounts: JSON.parse(JSON.stringify(config.value.Accounts)) }
+                        : { ...JSON.parse(buildSettingsSnapshot(config.value)), save_scope: 'settings' };
+                    const savedSettingsSnapshot = scope === 'settings' ? buildSettingsSnapshot(config.value) : null;
                     try {
                         const res = await fetch('index.php?action=save_config', {
                             method: 'POST',
-                            body: JSON.stringify(config.value)
+                            body: JSON.stringify(payload)
                         });
                         const data = await res.json();
-                        if (data.success) {
-                            await fetchConfig();
-                            markConfigClean();
-                            if (isAdmin.value) {
-                                await fetchAllInstances(false);
-								if (currentMenu.value === 'accounts' && config.value.enable_billing) {
-									await fetchBillingAnalysis(true);
-								}
+                        if (res.ok && data.success) {
+                            if (scope === 'accounts') {
+                                const settingsDraft = JSON.parse(buildSettingsSnapshot(config.value));
+                                const baseline = configBaseline.value;
+                                await fetchConfig();
+                                Object.assign(config.value, settingsDraft);
+                                configBaseline.value = baseline;
+                                await fetchStatusData();
+                                if (isAdmin.value) {
+                                    await fetchAllInstances(false);
+                                    if (config.value.enable_billing && currentAccountTab.value === 'billing') await fetchBillingAnalysis(true);
+                                }
+                            } else {
+                                const accepted = JSON.parse(savedSettingsSnapshot);
+                                const fields = [['Notification', 'password'], ['Notification', 'telegram', 'token'], ['Notification', 'telegram', 'proxy_pass']];
+                                for (const path of fields) {
+                                    const leaf = path[path.length - 1];
+                                    const oldParent = path.slice(0, -1).reduce((obj, key) => obj?.[key], accepted);
+                                    const currentParent = path.slice(0, -1).reduce((obj, key) => obj?.[key], config.value);
+                                    if (oldParent && typeof oldParent[leaf] === 'string') {
+                                        const submitted = oldParent[leaf];
+                                        const mask = submitted ? '********' : '';
+                                        oldParent[leaf] = mask;
+                                        if (currentParent?.[leaf] === submitted) currentParent[leaf] = mask;
+                                    }
+                                }
+                                if (config.value.admin_password === accepted.admin_password) config.value.admin_password = '';
+                                accepted.admin_password = '';
+                                configBaseline.value = buildSettingsSnapshot(accepted);
                             }
-                            if (successMessage) {
+                            if (Array.isArray(data.warnings) && data.warnings.length) {
+                                openAlert(data.warnings.join('；'), 'info');
+                            } else if (successMessage) {
                                 openAlert(successMessage, 'success');
                             }
                             return true;
@@ -9353,8 +9391,15 @@
                     }
                 };
 
+                const savingSettings = ref(false);
                 const saveConfig = async () => {
-                    return persistConfig();
+                    if (savingSettings.value) return false;
+                    savingSettings.value = true;
+                    try {
+                        return await persistConfig();
+                    } finally {
+                        savingSettings.value = false;
+                    }
                 };
 
                 const cloneRotationGroup = (group) => ({
@@ -9466,6 +9511,27 @@
                     return true;
                 };
 
+                const persistRotationGroups = async (groups, message) => {
+                    try {
+                        const response = await fetch('index.php?action=save_config', {
+                            method: 'POST',
+                            body: JSON.stringify({ save_scope: 'rotation', RotationGroups: groups })
+                        });
+                        const data = await response.json();
+                        if (!response.ok || !data.success) {
+                            openAlert(data.message || '分组保存失败', 'error');
+                            return false;
+                        }
+                        config.value.RotationGroups = normalizeConfig(data).RotationGroups;
+                        await fetchRotationDNSStatus();
+                        openAlert(message, 'success');
+                        return true;
+                    } catch {
+                        openAlert('分组保存请求失败', 'error');
+                        return false;
+                    }
+                };
+
                 const saveRotationGroup = async () => {
                     if (!validateRotationGroupDraft()) return;
                     savingRotationGroup.value = true;
@@ -9480,13 +9546,11 @@
                     } else {
                         nextGroups.push(nextGroup);
                     }
-                    config.value.RotationGroups = nextGroups;
-                    const success = await persistConfig('分组已保存');
+                    const success = await persistRotationGroups(nextGroups, '分组已保存');
                     if (success) {
                         closeRotationGroupModal();
                         return;
                     }
-                    config.value.RotationGroups = previousGroups;
                     savingRotationGroup.value = false;
                 };
 
@@ -9495,9 +9559,7 @@
                     const confirmed = await askConfirm(`确定删除分组“${group?.name || '未命名'}”吗？删除后不会修改或删除 DNS 服务商中的现有记录。`, { title: '删除分组' });
                     if (!confirmed) return;
                     const previousGroups = config.value.RotationGroups;
-                    config.value.RotationGroups = previousGroups.filter((_, groupIndex) => groupIndex !== index);
-                    const success = await persistConfig('分组已删除');
-                    if (!success) config.value.RotationGroups = previousGroups;
+                    await persistRotationGroups(previousGroups.filter((_, groupIndex) => groupIndex !== index), '分组已删除');
                 };
 
                 const openInstanceScheduleModal = (instance) => {
@@ -10011,7 +10073,7 @@
 
                     const previousAccounts = config.value.Accounts;
                     config.value.Accounts = nextAccounts;
-                    const success = await persistConfig('账号已保存并完成实例同步');
+                    const success = await persistConfig('账号已保存并完成实例同步', 'accounts');
                     if (success) {
                         closeAccountModal();
                         return;
@@ -10398,7 +10460,7 @@
                     if (!confirmed) return;
                     const previousAccounts = [...config.value.Accounts];
                     config.value.Accounts.splice(index, 1);
-                    const success = await persistConfig('账号已删除并完成实例同步');
+                    const success = await persistConfig('账号已删除并完成实例同步', 'accounts');
                     if (!success) {
                         config.value.Accounts = previousAccounts;
                     }
@@ -11060,6 +11122,7 @@
                     menuItems,
                     settingsItems,
                     settingsDirty,
+                    savingSettings,
                     passkeyAvailable,
                     passkeyCount,
                     passwordLoginEnabled,

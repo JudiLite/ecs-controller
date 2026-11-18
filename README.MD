@@ -1,8 +1,15 @@
 # ECS 控制台
 
-当前稳定版本：`v1.1.2`
+本次版本：`v1.1.3`
 
-`v1.1.2` 已适配上游 [Kori1c/ecs-controller](https://github.com/Kori1c/ecs-controller) 的 `v1.17.9`（提交 `9440345`），并保留本项目 `v1.1.1` 的功能。GitHub Releases 提供 Linux 与 Windows 的 AMD64、ARM64 安装包，可通过部署脚本安装或网页在线更新。
+`v1.1.3` 适配上游 [Kori1c/ecs-controller](https://github.com/Kori1c/ecs-controller) 的 `v1.17.13`（提交 `d2bfe3d`），保留轮转分组、DDNS、托管 EIP、备份和一键部署。GitHub Releases 提供 Linux 与 Windows 的 AMD64、ARM64 安装包，可通过部署脚本安装或网页在线更新。
+
+## v1.1.3 更新
+
+- 增加服务器本地管理员密码重置，保留业务数据和 Passkey。
+- 精确核对云端实例，处理账号或区域调整后留下的实例记录，并保留未完成的释放任务。
+- 系统设置、云账号和轮转分组独立保存，支持清空通知密钥。
+- 费用刷新独立于实例监控，区分未知金额与零费用。流量保护区分凭据和权限故障，并在 CDT 可接替时避免误报。
 
 一个简单的阿里云 ECS 管理面板，可以查看实例状态和流量，并在流量达到阈值时自动关机，避免产生额外费用。支持精选公共镜像与自定义镜像、多实例轮转与 DDNS 自动切换、Telegram Bot 双向交互控制及费用分析。
 
@@ -137,7 +144,7 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
   | sudo env ECS_PURGE=1 sh
 ```
 
-### 本地测试
+### 从源码本地运行
 
 在自己的电脑上测试时，需要安装 Go 1.26 或允许 Go 自动下载对应工具链。在项目根目录执行：
 
@@ -145,13 +152,40 @@ curl -fsSL https://raw.githubusercontent.com/JudiLite/ecs-controller/main/uninst
 ./run.sh
 ```
 
-脚本会先检查并停止当前端口上由本项目启动的旧进程，再启动最新源码。启动后访问 `http://127.0.0.1:43211`。本地数据保存在 `.local/data`，本地源码模式不启用后台在线更新；阿里云相关功能需要在界面中配置账号凭据后才能调用。
+脚本会先检查并停止当前端口上由本项目启动的旧进程，再运行当前检出的源码。启动后访问 `http://127.0.0.1:43211`。本地数据保存在 `.local/data`，本地源码模式不启用后台在线更新。日常部署使用上面的一键安装命令即可。
 
 ## 第一次使用
 
 1. 打开网页，设置管理员用户名和密码，密码至少 6 位。
 2. 进入“账号管理”，添加阿里云账号。
 3. 在“系统设置”中设置流量阈值、自动关机和通知方式。
+
+### 忘记管理员密码
+
+在服务器 Bash 终端输入新密码，再执行与部署方式对应的命令。新密码通过标准输入读取。重置后，旧会话失效，密码登录重新启用，业务数据与 Passkey 保留。
+
+```bash
+read -rs -p '请输入新管理员密码：' ECS_NEW_PASSWORD; printf '\n'
+# Docker 部署。若向导中修改了容器名称，请替换 ecs-controller。
+printf '%s' "$ECS_NEW_PASSWORD" | sudo docker exec -i ecs-controller /app/ecs-controller reset-password
+# 原生部署。修改过数据目录时请替换默认路径。
+printf '%s' "$ECS_NEW_PASSWORD" | sudo -u ecs-controller env ECS_DATA_DIR=/var/lib/ecs-controller /opt/ecs-controller/current/ecs-controller reset-password
+unset ECS_NEW_PASSWORD
+```
+
+### 忘记管理员密码
+
+无需删除数据或重装。使用已包含密码恢复命令的版本，在服务器的 Bash 终端执行：
+
+```bash
+read -r -s -p '新管理员密码（至少 6 位）：' ECS_NEW_PASSWORD; printf '\n'
+printf '%s' "$ECS_NEW_PASSWORD" | docker exec -i ecs-controller /app/ecs-controller reset-password
+unset ECS_NEW_PASSWORD
+```
+
+输入时不会显示密码，密码也不会写进命令参数或历史。重置会开启密码登录，使旧登录会话失效；账号、配置、历史数据和 Passkey 均会保留。此命令必须有服务器 Docker 操作权限，网页没有公开重置入口。若提示不支持该命令，请先更新程序，不要删除数据卷。
+
+重复部署默认复用同一部署项目现有容器的初始化 token；显式设置 `ECS_SETUP_TOKEN` 时以指定值为准。系统已经初始化后，应使用管理员密码或 Passkey 登录，而不是再填 token。
 
 ## 阿里云权限
 

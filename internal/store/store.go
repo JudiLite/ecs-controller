@@ -884,7 +884,12 @@ func (s *Store) QueueMissingInstanceCleanup(id int64, jobID string) error {
 	}
 	defer tx.Rollback()
 	now := time.Now().Unix()
-	result, err := tx.Exec(`UPDATE accounts SET is_deleted=1,instance_status='Releasing',cloud_presence='missing',updated_at=? WHERE id=? AND is_deleted=0`, now, id)
+	entityKey := strconv.FormatInt(id, 10)
+	result, err := tx.Exec(`UPDATE accounts SET is_deleted=1,
+		instance_status=CASE WHEN instance_status='ReleaseFailed' AND EXISTS (
+			SELECT 1 FROM jobs WHERE kind='delete_instance' AND entity_key=? AND status='failed'
+		) THEN instance_status ELSE 'Releasing' END,
+		cloud_presence='missing',updated_at=? WHERE id=? AND is_deleted=0`, entityKey, now, id)
 	if err != nil {
 		return err
 	}
@@ -892,7 +897,10 @@ func (s *Store) QueueMissingInstanceCleanup(id int64, jobID string) error {
 	if err != nil || changed == 0 {
 		return err
 	}
-	if _, err = tx.Exec(`INSERT INTO jobs(job_id,kind,entity_key,status,payload,attempts,available_at,created_at,updated_at) VALUES(?,?,?,?,?,0,?,?,?)`, jobID, "delete_instance", strconv.FormatInt(id, 10), "queued", "{}", now, now, now); err != nil {
+	if _, err = tx.Exec(`INSERT INTO jobs(job_id,kind,entity_key,status,payload,attempts,available_at,created_at,updated_at)
+		SELECT ?, 'delete_instance', ?, 'queued', '{"confirmedMissing":true}', 0, ?, ?, ?
+		WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE kind='delete_instance' AND entity_key=? AND status<>'done')`,
+		jobID, entityKey, now, now, now, entityKey); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -1308,8 +1316,11 @@ func (s *Store) RemoveAccountsOutsideGroups(groups []app.AccountGroup) ([]app.Ac
 	}
 	removed := make([]app.Account, 0)
 	for _, account := range accounts {
-		if account.InstanceStatus == "Releasing" {
-			// Let the existing cloud cleanup job finish before hiding the row.
+		var unfinished int
+		if err := s.DB.QueryRow(`SELECT COUNT(*) FROM jobs WHERE kind='delete_instance' AND entity_key=? AND status<>'done'`, strconv.FormatInt(account.ID, 10)).Scan(&unfinished); err != nil {
+			return removed, err
+		}
+		if account.InstanceStatus == "Releasing" || unfinished > 0 {
 			continue
 		}
 		key := account.GroupKey
@@ -1391,10 +1402,17 @@ func (s *Store) SaveGroups(groups []app.AccountGroup) error {
 }
 
 func (s *Store) LoadGroups() ([]app.AccountGroup, error) {
-	raw := s.GetSetting("account_groups", "[]")
+	var raw string
+	err := s.DB.QueryRow(`SELECT value FROM settings WHERE key='account_groups'`).Scan(&raw)
+	legacy := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !legacy {
+		return nil, err
+	}
 	var groups []app.AccountGroup
-	if err := json.Unmarshal([]byte(raw), &groups); err != nil {
-		groups = nil
+	if !legacy {
+		if err := json.Unmarshal([]byte(raw), &groups); err != nil {
+			return nil, fmt.Errorf("账号组配置格式无效: %w", err)
+		}
 	}
 	var secrets map[string]string
 	_ = json.Unmarshal([]byte(s.GetSetting("account_group_secrets", "{}")), &secrets)
@@ -1440,12 +1458,14 @@ func (s *Store) LoadGroups() ([]app.AccountGroup, error) {
 		groups[i].ScheduleBlockedByTraffic = groups[i].ScheduleBlockedByTraffic || blockedGroups[groups[i].GroupKey]
 	}
 	derived := false
-	if len(groups) == 0 && len(accounts) > 0 {
+	if legacy && len(accounts) > 0 {
 		groups = deriveGroupsFromAccounts(accounts)
 		derived = len(groups) > 0
 	}
 	if legacyPlaintext || derived {
-		_ = s.SaveGroups(groups)
+		if err := s.SaveGroups(groups); err != nil {
+			return nil, err
+		}
 	}
 	return groups, nil
 }

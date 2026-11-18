@@ -76,7 +76,7 @@ func TestRPCDoesNotRetryMutatingActions(t *testing.T) {
 }
 
 func TestIsNotFoundRecognizesWrappedAlibabaMessage(t *testing.T) {
-	err := fmt.Errorf("delete instance failed: aliyun InvalidInstanceId.NotFound: The specified InstanceId does not exist")
+	err := fmt.Errorf("delete instance failed: %w", &APIError{Code: "InvalidInstanceId.NotFound", Message: "The specified InstanceId does not exist"})
 	if !IsNotFound(err) {
 		t.Fatal("wrapped Alibaba not-found error was not recognized")
 	}
